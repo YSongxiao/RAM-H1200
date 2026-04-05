@@ -27,7 +27,13 @@ from monai.inferers import sliding_window_inference
 from sklearn.metrics import ConfusionMatrixDisplay
 import time
 import gc
-from torchmetrics.classification import BinaryAccuracy, BinaryPrecision, BinaryRecall, BinaryF1Score
+from torchmetrics.classification import (
+    BinaryAccuracy,
+    BinaryF1Score,
+    BinaryPrecision,
+    BinaryRecall,
+    MulticlassConfusionMatrix,
+)
 
 
 def _parse_cost_matrix_arg(cost_matrix_str: str, num_classes: int):
@@ -1815,6 +1821,416 @@ class BEPatchSegInferencer:
             plt.tight_layout()
             plt.savefig(save_root / f"{fname[:-4]}_{class_name}.png", dpi=300)
             plt.close()
+
+
+class ScoreClsTrainer:
+    def __init__(self, args, net, train_loader, val_loader, criterion, optimizer, num_classes, score_values=None, device="cuda:0"):
+        self.args = args
+        self.net = net
+        self.train_loader = train_loader
+        self.val_loader = val_loader
+        self.criterion = criterion.to(device) if isinstance(criterion, nn.Module) else criterion
+        self.optimizer = optimizer
+        self.num_classes = int(num_classes)
+        self.score_values = list(score_values) if score_values is not None else list(range(self.num_classes))
+        self.device = device
+        self.amp = args.amp
+        self.grad_clip = args.grad_clip
+        self.max_epoch = args.max_epoch
+        self.monitor_mode = getattr(args, "monitor_mode", "max")
+        self.monitor_metric = getattr(args, "monitor_metric", "qwk")
+        self.scaler = GradScaler() if self.amp else None
+        self.earlystop = EarlyStopping(
+            patience=args.earlystop_patience,
+            mode=self.monitor_mode,
+        )
+        if args.scheduler == "CosineAnnealing":
+            self.scheduler = optim.lr_scheduler.CosineAnnealingLR(
+                self.optimizer,
+                self.max_epoch,
+                eta_min=self.optimizer.param_groups[0]["lr"] * 0.01,
+            )
+        elif args.scheduler == "Plateau":
+            self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+                self.optimizer,
+                mode="max" if self.monitor_mode == "max" else "min",
+                factor=0.8,
+                patience=5,
+                cooldown=2,
+            )
+        else:
+            self.scheduler = None
+
+        self.start_epoch = 0
+        self.best_metric = -np.inf if self.monitor_mode == "max" else np.inf
+        self.train_loss_history = []
+        self.val_metric_history = []
+
+    def _forward_logits(self, img):
+        pred = self.net(img)
+        if not isinstance(pred, torch.Tensor):
+            pred = pred[0]
+        return pred
+
+    def _decode_ordinal_logits(self, pred):
+        if pred.ndim == 1:
+            pred = pred.unsqueeze(0)
+        return (torch.sigmoid(pred) > 0.5).sum(dim=1).long()
+
+    def _move_batch_to_device(self, batch):
+        return batch["img"].to(self.device), batch["ordinal_target"].to(self.device)
+
+    def load_training_state(self, state: Dict):
+        self.start_epoch = int(state.get("epoch", -1)) + 1
+        self.best_metric = float(
+            state.get("best_metric", -np.inf if self.monitor_mode == "max" else np.inf)
+        )
+        self.train_loss_history = list(state.get("train_loss_history", []))
+        self.val_metric_history = list(state.get("val_metric_history", []))
+
+        optimizer_state = state.get("optimizer")
+        if optimizer_state is not None:
+            self.optimizer.load_state_dict(optimizer_state)
+
+        scheduler_state = state.get("scheduler")
+        if self.scheduler is not None and scheduler_state is not None:
+            self.scheduler.load_state_dict(scheduler_state)
+
+        scaler_state = state.get("scaler")
+        if self.scaler is not None and scaler_state is not None:
+            self.scaler.load_state_dict(scaler_state)
+
+        earlystop_state = state.get("earlystop")
+        if earlystop_state is not None:
+            self.earlystop.load_state_dict(earlystop_state)
+
+    def fit(self, args):
+        train_loss = list(self.train_loss_history)
+        val_metric = list(self.val_metric_history)
+
+        for epoch in range(self.start_epoch, self.max_epoch):
+            if next(self.net.parameters()).device != self.device:
+                self.net = self.net.to(self.device)
+
+            epoch_train_loss = self.train_one_epoch_amp(epoch) if self.amp else self.train_one_epoch(epoch)
+            train_loss.append(epoch_train_loss)
+
+            epoch_val_metric = self.validate(epoch)
+            val_metric.append(epoch_val_metric)
+            self.train_loss_history = train_loss
+            self.val_metric_history = val_metric
+
+            self.plot(args, train_loss, val_metric)
+
+            should_stop = self.earlystop(epoch_val_metric) if getattr(args, "earlystop", False) else False
+            if self.scheduler is not None and not should_stop:
+                if args.scheduler == "Plateau":
+                    self.scheduler.step(epoch_val_metric)
+                else:
+                    self.scheduler.step()
+
+            is_better = (
+                epoch_val_metric > self.best_metric
+                if self.monitor_mode == "max"
+                else epoch_val_metric < self.best_metric
+            )
+            if is_better:
+                print(
+                    f"New best {self.monitor_metric}: "
+                    f"{self.best_metric:.4f} -> {epoch_val_metric:.4f}"
+                )
+                self.best_metric = epoch_val_metric
+            else:
+                print(
+                    f"No {self.monitor_metric} improvement: "
+                    f"{epoch_val_metric:.4f} (best {self.best_metric:.4f})"
+                )
+
+            ckpt = {
+                "model": self.net.state_dict(),
+                "epoch": epoch,
+                "optimizer": self.optimizer.state_dict(),
+                "scheduler": self.scheduler.state_dict() if self.scheduler is not None else None,
+                "scaler": self.scaler.state_dict() if self.scaler is not None else None,
+                "earlystop": self.earlystop.state_dict(),
+                "train_loss_history": train_loss,
+                "val_metric_history": val_metric,
+                "val_metric": epoch_val_metric,
+                "best_metric": self.best_metric,
+                "monitor_metric": self.monitor_metric,
+                "num_classes": self.num_classes,
+                "score_values": self.score_values,
+            }
+            torch.save(ckpt, Path(args.model_save_path) / "model_latest.pth")
+            if is_better:
+                torch.save(ckpt, Path(args.model_save_path) / "model_best.pth")
+
+            if should_stop:
+                print(f"Early stopping triggered on {self.monitor_metric}.")
+                break
+
+    def train_one_epoch_amp(self, epoch):
+        self.net.train()
+        pbar = tqdm(self.train_loader)
+        avg_loss = 0.0
+        for batch in pbar:
+            img, gt = self._move_batch_to_device(batch)
+
+            self.optimizer.zero_grad(set_to_none=True)
+            with autocast():
+                pred = self._forward_logits(img)
+                loss = self.criterion(pred, gt)
+            self.scaler.scale(loss).backward()
+            if self.grad_clip is not None:
+                torch.nn.utils.clip_grad_norm_(self.net.parameters(), self.grad_clip)
+            self.scaler.step(self.optimizer)
+            self.scaler.update()
+
+            avg_loss += loss.item()
+            pbar.set_description(
+                f"Epoch {epoch} training at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}, "
+                f"loss: {loss.item():.4f}, lr:{self.optimizer.param_groups[0]['lr']}"
+            )
+        return avg_loss / max(len(self.train_loader), 1)
+
+    def train_one_epoch(self, epoch):
+        self.net.train()
+        pbar = tqdm(self.train_loader)
+        avg_loss = 0.0
+        for batch in pbar:
+            img, gt = self._move_batch_to_device(batch)
+
+            self.optimizer.zero_grad(set_to_none=True)
+            pred = self._forward_logits(img)
+            loss = self.criterion(pred, gt)
+            loss.backward()
+            if self.grad_clip is not None:
+                torch.nn.utils.clip_grad_norm_(self.net.parameters(), self.grad_clip)
+            self.optimizer.step()
+
+            avg_loss += loss.item()
+            pbar.set_description(
+                f"Epoch {epoch} training at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}, "
+                f"loss: {loss.item():.4f}, lr:{self.optimizer.param_groups[0]['lr']}"
+            )
+        return avg_loss / max(len(self.train_loader), 1)
+
+    def validate(self, epoch):
+        self.net.eval()
+        pbar = tqdm(self.val_loader)
+        metrics = ClassificationMetrics(num_classes=self.num_classes, score_values=self.score_values)
+        avg_loss = 0.0
+
+        with torch.no_grad():
+            for batch in pbar:
+                img, gt = self._move_batch_to_device(batch)
+                pred = self._forward_logits(img)
+                loss = self.criterion(pred, gt)
+                avg_loss += loss.item()
+                pred_class = self._decode_ordinal_logits(pred)
+                metrics.update_metrics(
+                    pred_class,
+                    batch["label"],
+                    batch["case_name"],
+                    batch["joint_name"],
+                    pred_is_label=True,
+                )
+                pbar.set_description(
+                    f"Epoch {epoch} validating at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}, "
+                    f"loss: {loss.item():.4f}, lr:{self.optimizer.param_groups[0]['lr']}"
+                )
+
+        metric_dict = metrics.get_metrics()
+        metric_map = {
+            "macro_f1": float(metric_dict["overall_f1"]),
+            "accuracy": float(metric_dict["overall_accuracy"]),
+            "qwk": float(metric_dict["overall_qwk"]),
+            "mae": float(metric_dict["overall_mae"]),
+        }
+        metric_value = metric_map[self.monitor_metric]
+        mean_loss = avg_loss / max(len(self.val_loader), 1)
+        print(
+            f"Validation loss: {mean_loss:.4f}, "
+            f"accuracy: {metric_dict['overall_accuracy']:.4f}, "
+            f"macro_f1: {metric_dict['overall_f1']:.4f}, "
+            f"qwk: {metric_dict['overall_qwk']:.4f}, "
+            f"mae: {metric_dict['overall_mae']:.4f}"
+        )
+        return metric_value
+
+    def plot(self, args, train_loss, val_metric):
+        plt.plot(train_loss, label="Train Loss")
+        plt.plot(val_metric, label=f"Val {self.monitor_metric}")
+        plt.title("Training Curve")
+        plt.xlabel("Epoch")
+        plt.ylabel("Value")
+        plt.legend(loc="best")
+        plt.savefig(Path(args.model_save_path) / "loss_curve.png")
+        plt.close()
+
+
+class ScoreClsTester:
+    def __init__(self, args, net, test_loader, num_classes, score_values=None, device="cuda:0"):
+        self.args = args
+        self.net = net
+        state = torch.load(Path(args.checkpoint) / "model_best.pth", map_location="cpu")
+        self.net.load_state_dict(state["model"])
+        self.test_loader = test_loader
+        self.device = device
+        self.num_classes = int(num_classes)
+        self.score_values = list(score_values) if score_values is not None else list(range(self.num_classes))
+        self.save_csv = args.save_csv
+        self.metrics = ClassificationMetrics(num_classes=self.num_classes, score_values=self.score_values)
+        self.confusion_matrix = MulticlassConfusionMatrix(num_classes=self.num_classes).to(device)
+        if next(self.net.parameters()).device != self.device:
+            self.net = self.net.to(self.device)
+
+    def _forward_logits(self, img):
+        pred = self.net(img)
+        if not isinstance(pred, torch.Tensor):
+            pred = pred[0]
+        return pred
+
+    def _decode_ordinal_logits(self, pred):
+        if pred.ndim == 1:
+            pred = pred.unsqueeze(0)
+        return (torch.sigmoid(pred) > 0.5).sum(dim=1).long()
+
+    def _move_batch_to_device(self, batch):
+        return batch["img"].to(self.device), batch["label"].to(self.device)
+
+    def test(self):
+        self.net.eval()
+        pbar = tqdm(self.test_loader)
+        total_infer_time = 0.0
+        total_items = 0
+        rows = []
+
+        with torch.no_grad():
+            for batch in pbar:
+                img, gt = self._move_batch_to_device(batch)
+
+                start_time = time.time()
+                pred = self._forward_logits(img)
+                total_infer_time += time.time() - start_time
+                total_items += img.shape[0]
+
+                pred_class = self._decode_ordinal_logits(pred)
+                self.confusion_matrix.update(pred_class, gt)
+                self.metrics.update_metrics(
+                    pred_class,
+                    gt,
+                    batch["case_name"],
+                    batch["joint_name"],
+                    pred_is_label=True,
+                )
+
+                for idx in range(pred_class.shape[0]):
+                    rows.append(
+                        {
+                            "Case": batch["case_name"][idx],
+                            "Joint": batch["joint_name"][idx],
+                            "ScoreKey": batch["score_key"][idx],
+                            "GTClass": int(gt[idx].item()),
+                            "PredClass": int(pred_class[idx].item()),
+                            "GTRawScore": int(batch["raw_score"][idx].item()),
+                            "PredRawScore": int(self.score_values[int(pred_class[idx].item())]),
+                            "ImagePath": batch["img_path"][idx],
+                        }
+                    )
+                pbar.set_description(f"Testing at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+
+        confmat = self.confusion_matrix.compute().cpu().numpy()
+        print("Confusion Matrix:\n", confmat)
+        self.print_confusion_matrix(confmat)
+        self.plot_confusion_matrix(confmat)
+
+        metric_dict = self.metrics.get_metrics()
+        print(f"Accuracy: {metric_dict['overall_accuracy']:.4f}")
+        print(f"Macro F1: {metric_dict['overall_f1']:.4f}")
+        print(f"Macro Recall: {metric_dict['overall_recall']:.4f}")
+        print(f"Macro Precision: {metric_dict['overall_precision']:.4f}")
+        print(f"QWK: {metric_dict['overall_qwk']:.4f}")
+        print(f"MAE: {metric_dict['overall_mae']:.4f}")
+        print(f"Within-1: {metric_dict['overall_within_1']:.4f}")
+
+        avg_infer_time = total_infer_time / max(total_items, 1)
+        print(f"Average inference time per item: {avg_infer_time * 1000:.2f} ms")
+
+        if self.save_csv:
+            self.create_csv(metric_dict, rows, confmat)
+
+    def print_confusion_matrix(self, confmat):
+        labels = [str(score) for score in self.score_values]
+        confmat_df = pd.DataFrame(
+            confmat,
+            index=[f"GT_{label}" for label in labels],
+            columns=[f"Pred_{label}" for label in labels],
+        )
+        print("\nConfusion Matrix Table:")
+        print(confmat_df.to_string())
+
+    def plot_confusion_matrix(self, confmat):
+        display_labels = [str(score) for score in self.score_values]
+        disp = ConfusionMatrixDisplay(confusion_matrix=confmat, display_labels=display_labels)
+        disp.plot(cmap="Blues", xticks_rotation="vertical")
+        plt.title("Confusion Matrix")
+        plt.tight_layout()
+        plt.savefig(Path(self.args.checkpoint) / "ConfusionMatrix.pdf")
+        plt.close()
+
+    def create_csv(self, metrics_dict, rows, confmat):
+        save_path = Path(self.args.checkpoint)
+        pd.DataFrame(rows).to_csv(save_path / "test_predictions.csv", index=False)
+
+        summary_rows = [
+            {
+                "Scope": "Overall",
+                "Name": "All",
+                "Accuracy": metrics_dict["overall_accuracy"],
+                "Precision": metrics_dict["overall_precision"],
+                "Recall": metrics_dict["overall_recall"],
+                "F1score": metrics_dict["overall_f1"],
+                "Specificity": metrics_dict["overall_specificity"],
+                "BalancedAccuracy": metrics_dict["overall_balanced_accuracy"],
+                "DOR": metrics_dict["overall_dor"],
+                "QWK": metrics_dict["overall_qwk"],
+                "MAE": metrics_dict["overall_mae"],
+                "Within1": metrics_dict["overall_within_1"],
+            }
+        ]
+        for joint, joint_metric in metrics_dict["joint_metrics"].items():
+            summary_rows.append(
+                {
+                    "Scope": "Joint",
+                    "Name": joint,
+                    "Accuracy": joint_metric["accuracy"],
+                    "Precision": joint_metric["precision"],
+                    "Recall": joint_metric["recall"],
+                    "F1score": joint_metric["f1score"],
+                    "Specificity": joint_metric["specificity"],
+                    "BalancedAccuracy": joint_metric["balanced_accuracy"],
+                    "DOR": joint_metric["dor"],
+                    "QWK": joint_metric["qwk"],
+                    "MAE": joint_metric["mae"],
+                    "Within1": joint_metric["within_1"],
+                }
+            )
+        pd.DataFrame(summary_rows).to_csv(save_path / "test_metrics.csv", index=False)
+
+        cm_rows = []
+        for gt_idx in range(confmat.shape[0]):
+            for pred_idx in range(confmat.shape[1]):
+                cm_rows.append(
+                    {
+                        "GTClass": gt_idx,
+                        "PredClass": pred_idx,
+                        "GTScore": self.score_values[gt_idx],
+                        "PredScore": self.score_values[pred_idx],
+                        "Count": int(confmat[gt_idx, pred_idx]),
+                    }
+                )
+        pd.DataFrame(cm_rows).to_csv(save_path / "confusion_matrix.csv", index=False)
 
 
 class TwoStageEarlyStopping:

@@ -4,7 +4,20 @@ import numpy as np
 import torch
 from itertools import combinations
 from monai.metrics.metric import CumulativeIterationMetric
-from torchmetrics.classification import BinaryAccuracy, BinaryPrecision, BinaryRecall, BinaryF1Score, BinarySpecificity, BinaryConfusionMatrix
+from sklearn.metrics import cohen_kappa_score
+from torchmetrics.classification import (
+    BinaryAccuracy,
+    BinaryConfusionMatrix,
+    BinaryF1Score,
+    BinaryPrecision,
+    BinaryRecall,
+    BinarySpecificity,
+    MulticlassAccuracy,
+    MulticlassConfusionMatrix,
+    MulticlassF1Score,
+    MulticlassPrecision,
+    MulticlassRecall,
+)
 
 bone_name_dict = {0: "Capitate", 1: "DistalRadius", 2: "DistalUlna", 3: "Hamate", 4: "Lunate", 5: "Pisifrom&Triquetrum",
                   6: "Scaphoid", 7: "Trapzium", 8: "Trapzoid", 9: "metacarpal1st", 10: "metacarpal2nd",
@@ -1109,51 +1122,88 @@ from torchmetrics.classification import (
 
 
 class ClassificationMetrics:
-    def __init__(self):
+    def __init__(self, num_classes=2, score_values=None):
+        self.num_classes = int(num_classes)
+        self.score_values = list(score_values) if score_values is not None else list(range(self.num_classes))
         self.fnames = []
         self.keys = []
         self.preds = []
         self.gts = []
 
-    def update_metrics(self, pred, gt, fname, key):
+    def update_metrics(self, pred, gt, fname, key, pred_is_label=False):
         pred = pred.detach().cpu()
         gt = gt.detach().cpu()
 
-        if pred.ndim > 1 and pred.shape[1] == 2:
+        if (not pred_is_label) and pred.ndim > 1:
             pred = torch.argmax(pred, dim=1)
 
-        self.fnames.append(fname)
-        self.keys.append(key)
-        self.preds.append(pred)
-        self.gts.append(gt)
+        pred = pred.view(-1).long()
+        gt = gt.view(-1).long()
+        if isinstance(fname, (str, bytes)):
+            fname = [fname] * len(pred)
+        else:
+            fname = list(fname)
+        if isinstance(key, (str, bytes)):
+            key = [key] * len(pred)
+        else:
+            key = list(key)
+
+        if not (len(fname) == len(key) == len(pred) == len(gt)):
+            raise ValueError("fname, key, pred, and gt must have the same batch length.")
+
+        self.fnames.extend(fname)
+        self.keys.extend(key)
+        self.preds.extend([p.view(1) for p in pred])
+        self.gts.extend([g.view(1) for g in gt])
 
     def get_metrics(self):
         preds = torch.cat(self.preds, dim=0)
         gts = torch.cat(self.gts, dim=0)
+        raw_preds = np.asarray([self.score_values[int(idx)] for idx in preds.tolist()], dtype=float)
+        raw_gts = np.asarray([self.score_values[int(idx)] for idx in gts.tolist()], dtype=float)
 
-        # Overall metrics
-        accuracy_metric = BinaryAccuracy()
-        precision_metric = BinaryPrecision()
-        recall_metric = BinaryRecall()
-        f1_metric = BinaryF1Score()
-        specificity_metric = BinarySpecificity()
-        confusion_matrix_metric = BinaryConfusionMatrix()
+        if self.num_classes == 2:
+            accuracy_metric = BinaryAccuracy()
+            precision_metric = BinaryPrecision()
+            recall_metric = BinaryRecall()
+            f1_metric = BinaryF1Score()
+            specificity_metric = BinarySpecificity()
+            confusion_matrix_metric = BinaryConfusionMatrix()
 
-        overall_accuracy = accuracy_metric(preds, gts).item()
-        overall_precision = precision_metric(preds, gts).item()
-        overall_recall = recall_metric(preds, gts).item()
-        overall_f1 = f1_metric(preds, gts).item()
-        overall_specificity = specificity_metric(preds, gts).item()
-        overall_balanced_accuracy = (overall_recall + overall_specificity) / 2
+            overall_accuracy = accuracy_metric(preds, gts).item()
+            overall_precision = precision_metric(preds, gts).item()
+            overall_recall = recall_metric(preds, gts).item()
+            overall_f1 = f1_metric(preds, gts).item()
+            overall_specificity = specificity_metric(preds, gts).item()
+            overall_balanced_accuracy = (overall_recall + overall_specificity) / 2
 
-        overall_cm = confusion_matrix_metric(preds, gts)  # shape [2,2]
-        tn, fp, fn, tp = overall_cm.flatten().numpy()
-        if (fp * fn) > 0:
-            overall_dor = (tp * tn) / (fp * fn)
+            overall_cm = confusion_matrix_metric(preds, gts)
+            tn, fp, fn, tp = overall_cm.flatten().numpy()
+            if (fp * fn) > 0:
+                overall_dor = (tp * tn) / (fp * fn)
+            else:
+                overall_dor = float('nan')
         else:
+            accuracy_metric = MulticlassAccuracy(num_classes=self.num_classes, average="micro")
+            precision_metric = MulticlassPrecision(num_classes=self.num_classes, average="macro")
+            recall_metric = MulticlassRecall(num_classes=self.num_classes, average="macro")
+            f1_metric = MulticlassF1Score(num_classes=self.num_classes, average="macro")
+            balanced_accuracy_metric = MulticlassRecall(num_classes=self.num_classes, average="macro")
+            confusion_matrix_metric = MulticlassConfusionMatrix(num_classes=self.num_classes)
+
+            overall_accuracy = accuracy_metric(preds, gts).item()
+            overall_precision = precision_metric(preds, gts).item()
+            overall_recall = recall_metric(preds, gts).item()
+            overall_f1 = f1_metric(preds, gts).item()
+            overall_specificity = float("nan")
+            overall_balanced_accuracy = balanced_accuracy_metric(preds, gts).item()
+            overall_cm = confusion_matrix_metric(preds, gts)
             overall_dor = float('nan')
 
-        # Per-joint
+        overall_mae = float(np.mean(np.abs(raw_preds - raw_gts)))
+        overall_within_1 = float(np.mean(np.abs(raw_preds - raw_gts) <= 1))
+        overall_qwk = float(cohen_kappa_score(raw_gts, raw_preds, weights="quadratic"))
+
         joint_preds = {}
         joint_gts = {}
 
@@ -1169,20 +1219,32 @@ class ClassificationMetrics:
         for joint in joint_preds.keys():
             joint_pred = torch.cat(joint_preds[joint], dim=0)
             joint_gt = torch.cat(joint_gts[joint], dim=0)
+            joint_raw_pred = np.asarray([self.score_values[int(idx)] for idx in joint_pred.tolist()], dtype=float)
+            joint_raw_gt = np.asarray([self.score_values[int(idx)] for idx in joint_gt.tolist()], dtype=float)
 
             acc = accuracy_metric(joint_pred, joint_gt).item()
             prec = precision_metric(joint_pred, joint_gt).item()
             rec = recall_metric(joint_pred, joint_gt).item()
             f1 = f1_metric(joint_pred, joint_gt).item()
-            specificity = specificity_metric(joint_pred, joint_gt).item()
-            balanced_accuracy = (rec + specificity) / 2
-
             cm = confusion_matrix_metric(joint_pred, joint_gt)
-            tn, fp, fn, tp = cm.flatten().tolist()
-            if (fp * fn) > 0:
-                dor = (tp * tn) / (fp * fn)
+
+            if self.num_classes == 2:
+                specificity = specificity_metric(joint_pred, joint_gt).item()
+                balanced_accuracy = (rec + specificity) / 2
+                tn, fp, fn, tp = cm.flatten().tolist()
+                if (fp * fn) > 0:
+                    dor = (tp * tn) / (fp * fn)
+                else:
+                    dor = float('nan')
+                confusion_values = [tn, fp, fn, tp]
             else:
+                specificity = float("nan")
+                balanced_accuracy = MulticlassRecall(
+                    num_classes=self.num_classes,
+                    average="macro",
+                )(joint_pred, joint_gt).item()
                 dor = float('nan')
+                confusion_values = cm.tolist()
 
             joint_metrics[joint] = {
                 "accuracy": acc,
@@ -1192,10 +1254,14 @@ class ClassificationMetrics:
                 "specificity": specificity,
                 "balanced_accuracy": balanced_accuracy,
                 "dor": dor,
-                "confusion_matrix": [tn, fp, fn, tp]  # ⭐⭐ 直接保存
+                "mae": float(np.mean(np.abs(joint_raw_pred - joint_raw_gt))),
+                "within_1": float(np.mean(np.abs(joint_raw_pred - joint_raw_gt) <= 1)),
+                "qwk": float(cohen_kappa_score(joint_raw_gt, joint_raw_pred, weights="quadratic")),
+                "confusion_matrix": confusion_values,
             }
 
         return {
+            "num_classes": self.num_classes,
             "overall_accuracy": overall_accuracy,
             "overall_precision": overall_precision,
             "overall_recall": overall_recall,
@@ -1203,6 +1269,9 @@ class ClassificationMetrics:
             "overall_specificity": overall_specificity,
             "overall_balanced_accuracy": overall_balanced_accuracy,
             "overall_dor": overall_dor,
+            "overall_mae": overall_mae,
+            "overall_within_1": overall_within_1,
+            "overall_qwk": overall_qwk,
             "overall_confusion_matrix": overall_cm.flatten().tolist(),
             "joint_metrics": joint_metrics,
             "fname": self.fnames,
