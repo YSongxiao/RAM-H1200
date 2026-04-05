@@ -52,3 +52,6 @@ Thumbs.db
 # Logs / misc
 *.log
 nohup.out
+
+# Local scripts
+train_seg_33.sh

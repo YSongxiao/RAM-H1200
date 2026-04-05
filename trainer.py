@@ -71,6 +71,15 @@ def _safe_nanmean(arr, axis):
     return out
 
 
+def _save_prediction_npz(output_path: Path, pred, image=None, gt=None):
+    payload = {"pred": np.asarray(pred)}
+    if image is not None:
+        payload["image"] = np.asarray(image)
+    if gt is not None:
+        payload["gt"] = np.asarray(gt)
+    np.savez_compressed(output_path, **payload)
+
+
 class SegTrainer:
     def __init__(self, args, net, train_loader, val_loader, criterion, optimizer, num_classes=30, device="cuda:0"):
         self.args = args
@@ -936,7 +945,7 @@ class PatchSegTester:
         self.test_loader = test_loader
         self.device = device
         self.save_overlay = args.save_overlay
-        self.save_npy = args.save_npy
+        self.save_npz = getattr(args, "save_npz", getattr(args, "save_npy", False))
         self.save_csv = args.save_csv
         self.save_pred = args.save_pred
         self.sigmoid = torch.nn.Sigmoid()
@@ -1031,8 +1040,8 @@ class PatchSegTester:
                     if self.save_pred:
                         self.create_overlay_separate(self.args, raw_img, fused_pred, fused_gt, name)
 
-                    if self.save_npy:
-                        self.create_npy(self.args, fused_pred, name)
+                    if self.save_npz:
+                        self.create_npz(self.args, raw_img, fused_pred, fused_gt, name)
 
                     if self.save_csv:
                         self.metrics.update_metrics(
@@ -1044,15 +1053,20 @@ class PatchSegTester:
         if self.save_csv:
             self.create_csv(self.args)
 
-    def create_npy(self, args, pred, fname):
-        save_path = Path(args.checkpoint) / "npy"
+    def create_npz(self, args, image, pred, gt, fname):
+        save_path = Path(args.checkpoint) / "npz"
         if not save_path.exists():
             save_path.mkdir(parents=True)
 
         pred_mask_bin = pred
         pred_mask_bin[pred_mask_bin > 0.5] = 1
         pred_mask_bin[pred_mask_bin <= 0.5] = 0
-        np.save(save_path / (fname[:-4] + '.npy'), pred_mask_bin.astype(np.uint8))
+        _save_prediction_npz(
+            save_path / (fname[:-4] + '.npz'),
+            pred_mask_bin.astype(np.uint8),
+            image=image,
+            gt=gt.astype(np.uint8),
+        )
 
     def create_overlay(self, args, image, pred, gt, fname):
         save_path = Path(args.checkpoint) / "overlay"
@@ -1205,7 +1219,7 @@ class PatchSegInferencer:
         self.device = device
         self.save_uncertainty_overlay = args.save_uncertainty_overlay
         self.save_overlay = args.save_overlay
-        self.save_npy = args.save_npy
+        self.save_npz = getattr(args, "save_npz", getattr(args, "save_npy", False))
         self.save_csv = args.save_csv
         self.save_pred = args.save_pred
         self.sigmoid = torch.nn.Sigmoid()
@@ -1296,18 +1310,22 @@ class PatchSegInferencer:
                     if self.save_overlay:
                         self.create_overlay(self.args, raw_img, fused_mask, name)
 
-                    if self.save_npy:
-                        self.create_npy(self.args, fused_mask, name)
+                    if self.save_npz:
+                        self.create_npz(self.args, raw_img, fused_mask, name)
 
-    def create_npy(self, args, pred, fname):
-        save_path = Path(args.checkpoint) / "npy"
+    def create_npz(self, args, image, pred, fname):
+        save_path = Path(args.checkpoint) / "npz"
         if not save_path.exists():
             save_path.mkdir(parents=True)
 
         pred_mask_bin = pred
         pred_mask_bin[pred_mask_bin > 0.5] = 1
         pred_mask_bin[pred_mask_bin <= 0.5] = 0
-        np.save(save_path / (fname[:-4] + '.npy'), pred_mask_bin.astype(np.uint8))
+        _save_prediction_npz(
+            save_path / (fname[:-4] + '.npz'),
+            pred_mask_bin.astype(np.uint8),
+            image=image,
+        )
 
     def create_overlay(self, args, image, pred, fname):
         save_path = Path(args.checkpoint) / "overlay"
@@ -1394,7 +1412,7 @@ class BEPatchSegTester:
         self.device = device
         self.save_uncertainty_overlay = getattr(args, "save_uncertainty_overlay", False)
         self.save_overlay = args.save_overlay
-        self.save_npy = args.save_npy
+        self.save_npz = getattr(args, "save_npz", getattr(args, "save_npy", False))
         self.save_csv = args.save_csv
         self.save_pred = args.save_pred
         self.softmax = torch.nn.Softmax(dim=1)
@@ -1474,8 +1492,8 @@ class BEPatchSegTester:
                         self.create_overlay(raw_img, fused_pred, fused_gt, name)
                     if self.save_pred:
                         self.create_overlay_separate(raw_img, fused_pred, fused_gt, name)
-                    if self.save_npy:
-                        self.create_npy(fused_pred, name)
+                    if self.save_npz:
+                        self.create_npz(raw_img, fused_pred, fused_gt, name)
                     if self.save_csv:
                         self.metrics.update_metrics(
                             fused_pred[np.newaxis, ...],
@@ -1486,10 +1504,15 @@ class BEPatchSegTester:
         if self.save_csv:
             self.create_csv()
 
-    def create_npy(self, pred, fname):
-        save_path = Path(self.args.checkpoint) / "npy"
+    def create_npz(self, image, pred, gt, fname):
+        save_path = Path(self.args.checkpoint) / "npz"
         save_path.mkdir(parents=True, exist_ok=True)
-        np.save(save_path / (fname[:-4] + ".npy"), pred.astype(np.uint8))
+        _save_prediction_npz(
+            save_path / (fname[:-4] + ".npz"),
+            pred.astype(np.uint8),
+            image=image,
+            gt=gt.astype(np.uint8),
+        )
 
     def create_overlay(self, image, pred, gt, fname):
         save_path = Path(self.args.checkpoint) / "overlay"
@@ -1698,7 +1721,7 @@ class BEPatchSegInferencer:
         self.device = device
         self.save_uncertainty_overlay = getattr(args, "save_uncertainty_overlay", False)
         self.save_overlay = args.save_overlay
-        self.save_npy = args.save_npy
+        self.save_npz = getattr(args, "save_npz", getattr(args, "save_npy", False))
         self.softmax = torch.nn.Softmax(dim=1)
         self.channel_to_name = self.test_loader.dataset.channel_to_name
         self.colors = [
@@ -1764,13 +1787,17 @@ class BEPatchSegInferencer:
                         self.create_uncertainty_overlay(raw_img, fused_prob, name)
                     if self.save_overlay:
                         self.create_overlay(raw_img, fused_pred, name)
-                    if self.save_npy:
-                        self.create_npy(fused_pred, name)
+                    if self.save_npz:
+                        self.create_npz(raw_img, fused_pred, name)
 
-    def create_npy(self, pred, fname):
-        save_path = Path(self.args.checkpoint) / "npy"
+    def create_npz(self, image, pred, fname):
+        save_path = Path(self.args.checkpoint) / "npz"
         save_path.mkdir(parents=True, exist_ok=True)
-        np.save(save_path / (fname[:-4] + ".npy"), pred.astype(np.uint8))
+        _save_prediction_npz(
+            save_path / (fname[:-4] + ".npz"),
+            pred.astype(np.uint8),
+            image=image,
+        )
 
     def create_overlay(self, image, pred, fname):
         save_path = Path(self.args.checkpoint) / "overlay"

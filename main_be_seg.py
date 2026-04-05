@@ -114,10 +114,16 @@ def get_args():
         help="Whether to save overlay pdfs in test/infer mode.",
     )
     parser.add_argument(
-        "--save_npy",
+        "--save_npz",
         action="store_true",
         default=False,
-        help="Whether to save predicted masks as npy in test/infer mode.",
+        help="Whether to save prediction bundles as npz (pred/image/gt when available) in test/infer mode.",
+    )
+    parser.add_argument(
+        "--save_npy",
+        dest="save_npz",
+        action="store_true",
+        help="Deprecated alias of --save_npz.",
     )
     parser.add_argument(
         "--save_csv",

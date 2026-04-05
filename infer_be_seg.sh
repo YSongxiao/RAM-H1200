@@ -22,7 +22,7 @@ IMAGE_SIZE="${IMAGE_SIZE:-256}"
 VAL_BATCH_SIZE="${VAL_BATCH_SIZE:-1}"
 SEED="${SEED:-2026}"
 USE_COORDS="${USE_COORDS:-1}"
-SAVE_NPY="${SAVE_NPY:-0}"
+SAVE_NPZ="${SAVE_NPZ:-${SAVE_NPY:-0}}"
 SAVE_OVERLAY="${SAVE_OVERLAY:-0}"
 SAVE_UNCERTAINTY_OVERLAY="${SAVE_UNCERTAINTY_OVERLAY:-0}"
 SAVE_CSV="${SAVE_CSV:-1}"
@@ -75,8 +75,8 @@ else
     cmd+=(--no-use_coords)
 fi
 
-if [[ "${SAVE_NPY}" == "1" ]]; then
-    cmd+=(--save_npy)
+if [[ "${SAVE_NPZ}" == "1" ]]; then
+    cmd+=(--save_npz)
 fi
 
 if [[ "${SAVE_OVERLAY}" == "1" ]]; then

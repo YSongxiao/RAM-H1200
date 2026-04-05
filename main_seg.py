@@ -241,10 +241,17 @@ def get_args():
     )
 
     parser.add_argument(
-        '--save_npy',
+        '--save_npz',
         action='store_true',
         default=False,
-        help='Whether to save the npy (Test mode only).'
+        help='Whether to save prediction bundles as npz (pred/image/gt when available; Test mode only).'
+    )
+
+    parser.add_argument(
+        '--save_npy',
+        dest='save_npz',
+        action='store_true',
+        help='Deprecated alias of --save_npz.'
     )
 
     parser.add_argument(
