@@ -37,7 +37,7 @@ def get_args():
         "--model",
         type=str,
         default="ResNet34",
-        choices=["ResNet18", "ResNet34", "ResNet50", "DenseNet", "MobileNet", "EfficientFormer", "MobileViT", "LeViT", "MedMamba"],
+        choices=["ResNet18", "ResNet34", "ResNet50", "DenseNet", "MobileNet", "EfficientFormer", "MobileViT", "LeViT", "ConvNeXtV2", "EfficientNetV2", "MedMamba"],
         help="Classifier backbone.",
     )
     parser.add_argument(
@@ -179,8 +179,10 @@ def build_model(model_name, in_chans, num_classes):
     timm_models = {
         "MobileNet": "mobilenetv2_050",
         "EfficientFormer": "efficientformerv2_s0",
+        "EfficientNetV2": "tf_efficientnetv2_s.in21k_ft_in1k",
         "MobileViT": "mobilevit_s",
         "LeViT": "levit_128s",
+        "ConvNeXtV2": "convnextv2_tiny.fcmae_ft_in22k_in1k",
     }
     import timm
     return timm.create_model(
