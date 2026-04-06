@@ -48,12 +48,16 @@ PIN_MEMORY="${PIN_MEMORY:-1}"
 # )
 # 留空时按上面的默认变量只跑一个实验。
 EXPERIMENTS=(
-    "Baseline_BEScore::--model ResNet34 --score_type BE"
-    "Baseline_BEScore::--model DenseNet --score_type BE"
-    "Baseline_BEScore::--model MedMamba --score_type BE"
-    "Baseline_BEScore::--model EfficientFormer --score_type BE"
-    "Baseline_BEScore::--model LeViT --score_type BE"
-    "Baseline_BEScore::--model MobileViT --score_type BE"
+    "Baseline_BEScore::--model ConvNeXtV2 --score_type BE"
+    "Baseline_BEScore::--model EfficientNetV2 --score_type BE"
+    # "Baseline_BEScore::--model MambaVisionT --score_type BE"
+    # "Baseline_BEScore::--model ResNet34 --score_type BE"
+    # "Baseline_BEScore::--model DenseNet --score_type BE"
+    # "Baseline_BEScore::--model MedMamba --score_type BE"
+    # "Baseline_BEScore::--model MambaVisionT --score_type BE"
+    # "Baseline_BEScore::--model EfficientFormer --score_type BE"
+    # "Baseline_BEScore::--model LeViT --score_type BE"
+    # "Baseline_BEScore::--model MobileViT --score_type BE"
 )
 
 run_experiment() {

@@ -17,6 +17,7 @@ from datasets.beseg import BEPatchDataset, get_dataloader
 from evaluations.loss import CreditAwareDiceCELoss
 from models.ACC_UNet.ACC_UNet import ACC_UNet
 from models.Seg_UKAN.archs import UKAN
+from models.MambaVisionSeg import get_MambaVisionSeg
 from models.SwinUMamba import get_DPMSwinUMamba, get_RefinedSwinUMamba, get_SwinUMamba
 from models.TransUNet.transUnet import get_TransUnet_Custom
 from models.UMamba import get_UMambaBot, get_UMambaEnc
@@ -50,6 +51,7 @@ def get_args():
             "Unet", "SegResNet", "Unet++", "TransUnet", "UKAN", "DeepLabV3", "DeepLabV3+",
             "PSPNet", "PAN", "DPT", "SegFormer", "FPN", "UMambaBot", "UMambaEnc",
             "SwinUMamba", "DPMSwinUMamba", "RefinedSwinUMamba", "ACC_UNet", "SwinUNETR",
+            "MambaVisionT", "MambaVisionT2", "MambaVisionS",
         ],
         help="The name of the model.",
     )
@@ -368,6 +370,19 @@ def build_model(args, in_chans):
         return get_DPMSwinUMamba(in_channels=in_chans, num_overlap_classes=1, num_classes=out_chans)
     elif args.model == "RefinedSwinUMamba":
         raise NotImplementedError("RefinedSwinUMamba for BE segmentation requires an explicit base checkpoint.")
+    elif args.model in {"MambaVisionT", "MambaVisionT2", "MambaVisionS"}:
+        variant_map = {
+            "MambaVisionT": "mamba_vision_T",
+            "MambaVisionT2": "mamba_vision_T2",
+            "MambaVisionS": "mamba_vision_S",
+        }
+        return get_MambaVisionSeg(
+            variant=variant_map[args.model],
+            in_chans=in_chans,
+            num_classes=out_chans,
+            image_size=args.image_size,
+            pretrained=False,
+        )
     elif args.model == "ACC_UNet":
         return ACC_UNet(n_channels=in_chans, n_classes=out_chans - 1)
     elif args.model == "SwinUNETR":
@@ -421,8 +436,11 @@ def main():
             if resume_state is not None:
                 net.load_state_dict(resume_state["model"])
             elif args.pretrained_weights and Path(args.pretrained_weights).exists():
-                state = torch.load(Path(args.pretrained_weights), map_location="cpu")
-                net.load_state_dict(state["model"])
+                if hasattr(net, "load_pretrained_weights"):
+                    net.load_pretrained_weights(Path(args.pretrained_weights))
+                else:
+                    state = torch.load(Path(args.pretrained_weights), map_location="cpu")
+                    net.load_state_dict(state["model"])
 
             net = net.to(device)
             if args.is_ddp:

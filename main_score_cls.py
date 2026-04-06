@@ -37,7 +37,22 @@ def get_args():
         "--model",
         type=str,
         default="ResNet34",
-        choices=["ResNet18", "ResNet34", "ResNet50", "DenseNet", "MobileNet", "EfficientFormer", "MobileViT", "LeViT", "ConvNeXtV2", "EfficientNetV2", "MedMamba"],
+        choices=[
+            "ResNet18",
+            "ResNet34",
+            "ResNet50",
+            "DenseNet",
+            "MobileNet",
+            "EfficientFormer",
+            "MobileViT",
+            "LeViT",
+            "ConvNeXtV2",
+            "EfficientNetV2",
+            "MedMamba",
+            "MambaVisionT",
+            "MambaVisionT2",
+            "MambaVisionS",
+        ],
         help="Classifier backbone.",
     )
     parser.add_argument(
@@ -151,8 +166,30 @@ def prepare_train_run(args):
     return None
 
 
-def build_model(model_name, in_chans, num_classes):
+def build_model(model_name, in_chans, num_classes, image_size=224):
     out_dims = max(num_classes - 1, 1)
+    if model_name in {"MambaVisionT", "MambaVisionT2", "MambaVisionS"}:
+        try:
+            from mambavision import create_model as create_mambavision_model
+        except ImportError as exc:
+            raise ImportError(
+                "MambaVision is selected but the 'mambavision' package is not available. "
+                "Please install it in the current training environment first."
+            ) from exc
+
+        mambavision_models = {
+            "MambaVisionT": "mamba_vision_T",
+            "MambaVisionT2": "mamba_vision_T2",
+            "MambaVisionS": "mamba_vision_S",
+        }
+        return create_mambavision_model(
+            mambavision_models[model_name],
+            pretrained=False,
+            in_chans=in_chans,
+            num_classes=out_dims,
+            resolution=image_size,
+        )
+
     if model_name in {"ResNet18", "ResNet34", "ResNet50"}:
         import timm
 
@@ -261,7 +298,7 @@ def main():
 
         num_classes = len(train_dataset.score_values)
         in_chans = 3 if args.to_rgb else 1
-        net = build_model(args.model, in_chans, num_classes).to(device)
+        net = build_model(args.model, in_chans, num_classes, image_size=args.image_size).to(device)
         if resume_state is not None:
             net.load_state_dict(resume_state["model"])
 
@@ -316,7 +353,7 @@ def main():
     )
     num_classes = len(test_dataset.score_values)
     in_chans = 3 if args.to_rgb else 1
-    net = build_model(args.model, in_chans, num_classes).to(device)
+    net = build_model(args.model, in_chans, num_classes, image_size=args.image_size).to(device)
     test_loader = build_loader(
         test_dataset,
         batch_size=args.val_batch_size,

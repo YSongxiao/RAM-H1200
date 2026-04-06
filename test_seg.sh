@@ -46,12 +46,12 @@ fi
 #   "DisplayName::--model SwinUMamba --checkpoint ./ckpts/your_experiment_dir"
 # Leave empty to run a single test with the default variables above.
 EXPERIMENTS=(
-    "Baseline_BoneSeg_SwinUMamba::--model SwinUMamba --checkpoint ./ckpts/Baseline_BoneSeg_swinumamba_20260331000732 --save_overlay --save_overlay --save_npz"
-    "Baseline_BoneSeg_SwinUNETR::--model SwinUNETR --checkpoint ./ckpts/Baseline_BoneSeg_swinunetr_202603291751"
-    "Baseline_BoneSeg_TansUNet::--model TransUnet --checkpoint ./ckpts/Baseline_BoneSeg_transunet_20260401113613"
-    "Baseline_BoneSeg_UMambaEnc::--model UMambaEnc --checkpoint ./ckpts/Baseline_BoneSeg_swinumamba_20260331224356"
-    "Baseline_BoneSeg_Unet::--model Unet --checkpoint ./ckpts/Baseline_BoneSeg_unet_20260401195552"
-    "Baseline_BoneSeg_Unet++::--model Unet++ --checkpoint ./ckpts/Baseline_BoneSeg_unet++_20260402182806"
+    # "Baseline_BoneSeg_SwinUMamba::--model SwinUMamba --checkpoint ./ckpts/Baseline_BoneSeg_swinumamba_20260331000732 --save_overlay --save_overlay --save_npz"
+    # "Baseline_BoneSeg_SwinUNETR::--model SwinUNETR --checkpoint ./ckpts/Baseline_BoneSeg_swinunetr_202603291751 --save_overlay --save_overlay --save_npz"
+    "Baseline_BoneSeg_TansUNet::--model TransUnet --checkpoint ./ckpts/Baseline_BoneSeg_transunet_20260401113613 --save_overlay --save_overlay --save_npz"
+    "Baseline_BoneSeg_UMambaEnc::--model UMambaEnc --checkpoint ./ckpts/Baseline_BoneSeg_umambaenc_20260331224356 --save_overlay --save_overlay --save_npz"
+    "Baseline_BoneSeg_Unet::--model Unet --checkpoint ./ckpts/Baseline_BoneSeg_unet_20260401195552 --save_overlay --save_overlay --save_npz"
+    "Baseline_BoneSeg_Unet++::--model Unet++ --checkpoint ./ckpts/Baseline_BoneSeg_unet++_20260402182806 --save_overlay --save_overlay --save_npz"
 )
 
 has_checkpoint_arg() {

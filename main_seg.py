@@ -19,6 +19,7 @@ from models.UnetPlusPlus import UnetPlusPlus
 from models.swin_unet.swintrans import SwinUnet
 from models.swin_unet.swin_unet import get_SwinUnet_Custom
 from models.Seg_UKAN.archs import UKAN
+from models.MambaVisionSeg import get_MambaVisionSeg
 from models.TransUNet.transUnet import get_TransUnet_Custom
 from models.UMamba import get_UMambaBot, get_UMambaEnc
 from models.SwinUMamba import get_SwinUMamba, get_DPMSwinUMamba, get_RefinedSwinUMamba
@@ -71,7 +72,7 @@ def get_args():
         default="SwinUMamba",
         choices=["Unet", "SwinUnet", "SegResNet", "Unet++", "TransUnet", "UKAN", "DeepLabV3", "DeepLabV3+", "PSPNet",
                  "PAN", "DPT", "SegFormer", "FPN", "UMambaBot", "UMambaEnc", "SwinUMamba", "DPMSwinUMamba", "RefinedSwinUMamba",
-                 "ACC_UNet", "SwinUNETR"],
+                 "ACC_UNet", "SwinUNETR", "MambaVisionT", "MambaVisionT2", "MambaVisionS"],
         help='The name of the model.',
     )
 
@@ -504,6 +505,19 @@ def build_model(args, in_chans):
         return get_DPMSwinUMamba(in_channels=in_chans, num_overlap_classes=14, num_classes=30)
     elif args.model == "RefinedSwinUMamba":
         return get_RefinedSwinUMamba(in_channels=in_chans, num_classes=30, base_ckpt="/mnt/data1/songxiao/FullHandAnnotation/ckpts/Annotation_swinumamba_202602151753/model_best_nsd.pth")
+    elif args.model in {"MambaVisionT", "MambaVisionT2", "MambaVisionS"}:
+        variant_map = {
+            "MambaVisionT": "mamba_vision_T",
+            "MambaVisionT2": "mamba_vision_T2",
+            "MambaVisionS": "mamba_vision_S",
+        }
+        return get_MambaVisionSeg(
+            variant=variant_map[args.model],
+            in_chans=in_chans,
+            num_classes=30,
+            image_size=args.image_size,
+            pretrained=False,
+        )
     elif args.model == "ACC_UNet":
         # This ACC_UNet implementation outputs n_classes + 1 channels when n_classes != 1, we modified the source code to fix it.
         return ACC_UNet(n_channels=in_chans, n_classes=30)
@@ -560,8 +574,11 @@ def main():
             if resume_state is not None:
                 net.load_state_dict(resume_state["model"])
             elif args.pretrained_weights and Path(args.pretrained_weights).exists():
-                state = torch.load(Path(args.pretrained_weights), map_location="cpu")
-                net.load_state_dict(state["model"])
+                if hasattr(net, "load_pretrained_weights"):
+                    net.load_pretrained_weights(Path(args.pretrained_weights))
+                else:
+                    state = torch.load(Path(args.pretrained_weights), map_location="cpu")
+                    net.load_state_dict(state["model"])
 
             net = net.to(device)
             if args.is_ddp:

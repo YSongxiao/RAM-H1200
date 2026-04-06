@@ -72,12 +72,13 @@ AMP="${AMP:-1}"
 # 需要断点续训时，请在执行脚本时额外传入 --resume 或 --resume_from。
 # 留空时，脚本按上面的默认变量只跑一个实验。
 EXPERIMENTS=(
+    "Baseline_BESeg_DiceCE::--model MambaVisionT --loss dicece --train_batch_size 16"
     # "Baseline_BESeg_DiceCE::--model UMambaEnc --loss dicece --train_batch_size 16"
     # "Baseline_BESeg_DiceCE::--model SwinUMamba --loss dicece --train_batch_size 16"
-    "Baseline_BESeg_DiceCE::--model SwinUNETR --loss dicece --train_batch_size 16"
-    "Baseline_BESeg_DiceCE::--model TransUnet --loss dicece --train_batch_size 16"
-    "Baseline_BESeg_DiceCE::--model Unet --loss dicece --train_batch_size 16"
-    "Baseline_BESeg_DiceCE::--model Unet++ --loss dicece --train_batch_size 16"
+    # "Baseline_BESeg_DiceCE::--model SwinUNETR --loss dicece --train_batch_size 16"
+    # "Baseline_BESeg_DiceCE::--model TransUnet --loss dicece --train_batch_size 16"
+    # "Baseline_BESeg_DiceCE::--model Unet --loss dicece --train_batch_size 16"
+    # "Baseline_BESeg_DiceCE::--model Unet++ --loss dicece --train_batch_size 16"
 )
 
 run_experiment() {
