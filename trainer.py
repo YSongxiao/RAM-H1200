@@ -80,7 +80,71 @@ def _save_prediction_npz(output_path: Path, pred, image=None, gt=None):
     np.savez_compressed(output_path, **payload)
 
 
-class SegTrainer:
+def _synchronize_device(device):
+    if torch.cuda.is_available():
+        device_obj = torch.device(device)
+        if device_obj.type == "cuda":
+            torch.cuda.synchronize(device_obj)
+
+
+def _time_model_forward(forward_fn, device):
+    _synchronize_device(device)
+    start_time = time.perf_counter()
+    output = forward_fn()
+    _synchronize_device(device)
+    return output, time.perf_counter() - start_time
+
+
+def _update_case_inference_times(case_time_records, case_names, batch_elapsed_seconds):
+    if not case_names:
+        return
+    per_item_ms = (batch_elapsed_seconds / len(case_names)) * 1000.0
+    for case_name in case_names:
+        case_time_records.setdefault(case_name, []).append(per_item_ms)
+
+
+def _build_case_inference_time_df(case_time_records):
+    rows = []
+    for case_name, times_ms in case_time_records.items():
+        if not times_ms:
+            continue
+        rows.append(
+            {
+                "Case": case_name,
+                "Mean Inference Time (ms)": float(np.mean(times_ms)),
+                "Std Inference Time (ms)": float(np.std(times_ms, ddof=1)) if len(times_ms) > 1 else np.nan,
+                "Num Samples": int(len(times_ms)),
+            }
+        )
+    rows.sort(key=lambda item: item["Case"])
+    df = pd.DataFrame(rows)
+    if df.empty:
+        return df
+
+    average_row = pd.DataFrame(
+        [
+            {
+                "Case": "Average",
+                "Mean Inference Time (ms)": float(df["Mean Inference Time (ms)"].mean()),
+                "Std Inference Time (ms)": float(df["Mean Inference Time (ms)"].std(ddof=1)) if len(df) > 1 else np.nan,
+                "Num Samples": int(df["Num Samples"].sum()),
+            }
+        ]
+    )
+    return pd.concat([df, average_row], ignore_index=True)
+
+
+def _print_case_inference_time_summary(case_time_records):
+    inference_time_df = _build_case_inference_time_df(case_time_records)
+    if inference_time_df.empty:
+        return
+    print("\nPer-case mean inference time (ms):")
+    print(inference_time_df.to_string(index=False))
+    avg_time_ms = float(inference_time_df.iloc[-1]["Mean Inference Time (ms)"])
+    print(f"\nAverage inference time per case: {avg_time_ms:.2f} ms")
+
+
+class FullHandBoneSegTrainer:
     def __init__(self, args, net, train_loader, val_loader, criterion, optimizer, num_classes=30, device="cuda:0"):
         self.args = args
         self.net = net
@@ -463,7 +527,7 @@ class SegTrainer:
         plt.close()
 
 
-class BESegTrainer(SegTrainer):
+class BESegTrainer(FullHandBoneSegTrainer):
     def __init__(self, args, net, train_loader, val_loader, criterion, optimizer, num_classes=1, device="cuda:0"):
         super().__init__(
             args=args,
@@ -700,7 +764,7 @@ class BESegTrainer(SegTrainer):
             gc.collect()
 
 
-class SegTester:
+class LegacyBoneSegTester:
     def __init__(self, args, net, test_loader, device="cuda:0"):
         self.args = args
         self.net = net
@@ -934,7 +998,7 @@ class SegTester:
         final_df.to_csv((save_path / 'test_metrics.csv'), index=False)
 
 
-class PatchSegTester:
+class FullHandBoneSegTester:
     def __init__(self, args, net, test_loader, device="cuda:0"):
         self.args = args
         self.net = net
@@ -997,6 +1061,7 @@ class PatchSegTester:
     def test(self):
         self.net.eval()
         pbar = tqdm(self.test_loader)
+        case_inference_times = {}
 
         with torch.no_grad():
             for step, batch in enumerate(pbar):
@@ -1005,14 +1070,18 @@ class PatchSegTester:
                 fname = batch["fname"]
 
                 # -------- sliding window inference --------
-                logits = sliding_window_inference(
-                    inputs=img,
-                    roi_size=(self.args.image_size, self.args.image_size),
-                    sw_batch_size=4,
-                    predictor=self.net,
-                    overlap=0.5,
-                    mode="gaussian"
+                logits, infer_time = _time_model_forward(
+                    lambda: sliding_window_inference(
+                        inputs=img,
+                        roi_size=(self.args.image_size, self.args.image_size),
+                        sw_batch_size=4,
+                        predictor=self.net,
+                        overlap=0.5,
+                        mode="gaussian"
+                    ),
+                    self.device,
                 )
+                _update_case_inference_times(case_inference_times, list(fname), infer_time)
 
                 probs = self.sigmoid(logits)
                 pred = (probs > 0.5).float().cpu().numpy()
@@ -1049,6 +1118,8 @@ class PatchSegTester:
                             fused_gt[np.newaxis, ...],
                             name
                         )
+
+        _print_case_inference_time_summary(case_inference_times)
 
         if self.save_csv:
             self.create_csv(self.args)
@@ -1205,7 +1276,7 @@ class PatchSegTester:
         final_df.to_csv((save_path / 'test_metrics.csv'), index=False)
 
 
-class PatchSegInferencer:
+class FullHandBoneSegInferencer:
     def __init__(self, args, net, test_loader, device="cuda:0"):
         self.args = args
         self.net = net
@@ -1448,6 +1519,7 @@ class BEPatchSegTester:
     def test(self):
         self.net.eval()
         pbar = tqdm(self.test_loader)
+        case_inference_times = {}
 
         with torch.no_grad():
             for _, batch in enumerate(pbar):
@@ -1455,14 +1527,18 @@ class BEPatchSegTester:
                 gt = batch["gt"].cpu().numpy()
                 fname = batch["fname"]
 
-                logits = sliding_window_inference(
-                    inputs=img,
-                    roi_size=(self.args.image_size, self.args.image_size),
-                    sw_batch_size=4,
-                    predictor=self.net,
-                    overlap=0.5,
-                    mode="gaussian",
+                logits, infer_time = _time_model_forward(
+                    lambda: sliding_window_inference(
+                        inputs=img,
+                        roi_size=(self.args.image_size, self.args.image_size),
+                        sw_batch_size=4,
+                        predictor=self.net,
+                        overlap=0.5,
+                        mode="gaussian",
+                    ),
+                    self.device,
                 )
+                _update_case_inference_times(case_inference_times, list(fname), infer_time)
 
                 probs = self.softmax(logits).cpu()
                 pred_idx = torch.argmax(probs, dim=1)
@@ -1500,6 +1576,8 @@ class BEPatchSegTester:
                             fused_gt[np.newaxis, ...],
                             name,
                         )
+
+        _print_case_inference_time_summary(case_inference_times)
 
         if self.save_csv:
             self.create_csv()
@@ -1850,6 +1928,12 @@ class BEPatchSegInferencer:
             plt.close()
 
 
+SegTrainer = FullHandBoneSegTrainer
+SegTester = LegacyBoneSegTester
+PatchSegTester = FullHandBoneSegTester
+PatchSegInferencer = FullHandBoneSegInferencer
+
+
 class ScoreClsTrainer:
     def __init__(self, args, net, train_loader, val_loader, criterion, optimizer, num_classes, score_values=None, device="cuda:0"):
         self.args = args
@@ -2129,18 +2213,15 @@ class ScoreClsTester:
     def test(self):
         self.net.eval()
         pbar = tqdm(self.test_loader)
-        total_infer_time = 0.0
-        total_items = 0
+        case_inference_times = {}
         rows = []
 
         with torch.no_grad():
             for batch in pbar:
                 img, gt = self._move_batch_to_device(batch)
 
-                start_time = time.time()
-                pred = self._forward_logits(img)
-                total_infer_time += time.time() - start_time
-                total_items += img.shape[0]
+                pred, infer_time = _time_model_forward(lambda: self._forward_logits(img), self.device)
+                _update_case_inference_times(case_inference_times, list(batch["case_name"]), infer_time)
 
                 pred_class = self._decode_ordinal_logits(pred)
                 self.confusion_matrix.update(pred_class, gt)
@@ -2181,8 +2262,7 @@ class ScoreClsTester:
         print(f"MAE: {metric_dict['overall_mae']:.4f}")
         print(f"Within-1: {metric_dict['overall_within_1']:.4f}")
 
-        avg_infer_time = total_infer_time / max(total_items, 1)
-        print(f"Average inference time per item: {avg_infer_time * 1000:.2f} ms")
+        _print_case_inference_time_summary(case_inference_times)
 
         if self.save_csv:
             self.create_csv(metric_dict, rows, confmat)

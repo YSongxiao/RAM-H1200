@@ -18,11 +18,15 @@ STOP_ON_ERROR="${STOP_ON_ERROR:-1}"
 MODE="${MODE:-test}"
 MODEL="${MODEL:-SwinUMamba}"
 CHECKPOINT="${CHECKPOINT:-}"
-DATA_PATH="${DATA_PATH:-/home/yafei/data/RAM-H1200/split_dataset_via_be_mask_remapped}"
+DATA_PATH="${DATA_PATH:-/mnt/data2/datasx/FullHand/NIPS26/split_dataset_via_be_mask_remapped}"
 
 IMAGE_SIZE="${IMAGE_SIZE:-512}"
 VAL_BATCH_SIZE="${VAL_BATCH_SIZE:-1}"
 SEED="${SEED:-2026}"
+NUM_WORKERS="${NUM_WORKERS:-4}"
+PREFETCH_FACTOR="${PREFETCH_FACTOR:-2}"
+PIN_MEMORY="${PIN_MEMORY:-0}"
+PERSISTENT_WORKERS="${PERSISTENT_WORKERS:-0}"
 USE_COORDS="${USE_COORDS:-1}"
 SAVE_NPZ="${SAVE_NPZ:-${SAVE_NPY:-0}}"
 SAVE_OVERLAY="${SAVE_OVERLAY:-0}"
@@ -46,12 +50,12 @@ fi
 #   "DisplayName::--model SwinUMamba --checkpoint ./ckpts/your_experiment_dir"
 # Leave empty to run a single test with the default variables above.
 EXPERIMENTS=(
-    # "Baseline_BoneSeg_SwinUMamba::--model SwinUMamba --checkpoint ./ckpts/Baseline_BoneSeg_swinumamba_20260331000732 --save_overlay --save_overlay --save_npz"
-    # "Baseline_BoneSeg_SwinUNETR::--model SwinUNETR --checkpoint ./ckpts/Baseline_BoneSeg_swinunetr_202603291751 --save_overlay --save_overlay --save_npz"
-    "Baseline_BoneSeg_TansUNet::--model TransUnet --checkpoint ./ckpts/Baseline_BoneSeg_transunet_20260401113613 --save_overlay --save_overlay --save_npz"
-    "Baseline_BoneSeg_UMambaEnc::--model UMambaEnc --checkpoint ./ckpts/Baseline_BoneSeg_umambaenc_20260331224356 --save_overlay --save_overlay --save_npz"
-    "Baseline_BoneSeg_Unet::--model Unet --checkpoint ./ckpts/Baseline_BoneSeg_unet_20260401195552 --save_overlay --save_overlay --save_npz"
-    "Baseline_BoneSeg_Unet++::--model Unet++ --checkpoint ./ckpts/Baseline_BoneSeg_unet++_20260402182806 --save_overlay --save_overlay --save_npz"
+#     "Baseline_BoneSeg_SwinUMamba::--model SwinUMamba --checkpoint ./ckpts/Baseline_BoneSeg_swinumamba_20260331000732 --save_csv"
+     "Baseline_BoneSeg_SwinUNETR::--model SwinUNETR --checkpoint ./ckpts/Baseline_BoneSeg_swinunetr_202603291751 --save_csv"
+    "Baseline_BoneSeg_TansUNet::--model TransUnet --checkpoint ./ckpts/Baseline_BoneSeg_transunet_20260401113613 --save_csv"
+    "Baseline_BoneSeg_UMambaEnc::--model UMambaEnc --checkpoint ./ckpts/Baseline_BoneSeg_umambaenc_20260331224356 --save_csv"
+    "Baseline_BoneSeg_Unet::--model Unet --checkpoint ./ckpts/Baseline_BoneSeg_unet_20260401195552 --save_csv"
+    "Baseline_BoneSeg_Unet++::--model Unet++ --checkpoint ./ckpts/Baseline_BoneSeg_unet++_20260402182806 --save_csv"
 )
 
 has_checkpoint_arg() {
@@ -84,8 +88,22 @@ run_experiment() {
         --image_size "${IMAGE_SIZE}"
         --val_batch_size "${VAL_BATCH_SIZE}"
         --seed "${SEED}"
+        --num_workers "${NUM_WORKERS}"
+        --prefetch_factor "${PREFETCH_FACTOR}"
         --use_coords
     )
+
+    if [[ "${PIN_MEMORY}" == "1" ]]; then
+        cmd+=(--pin_memory)
+    else
+        cmd+=(--no-pin_memory)
+    fi
+
+    if [[ "${PERSISTENT_WORKERS}" == "1" ]]; then
+        cmd+=(--persistent_workers)
+    else
+        cmd+=(--no-persistent_workers)
+    fi
 
     if [[ "${SAVE_NPZ}" == "1" ]]; then
         cmd+=(--save_npz)

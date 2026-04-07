@@ -18,11 +18,15 @@ STOP_ON_ERROR="${STOP_ON_ERROR:-1}"
 MODE="${MODE:-test}"
 MODEL="${MODEL:-UMambaEnc}"
 CHECKPOINT="${CHECKPOINT:-}"
-DATA_PATH="${DATA_PATH:-/home/yafei/data/RAM-H1200/split_dataset_via_be_mask_remapped}"
+DATA_PATH="${DATA_PATH:-/mnt/data2/datasx/FullHand/NIPS26/split_dataset_via_be_mask_remapped}"
 
 IMAGE_SIZE="${IMAGE_SIZE:-256}"
 VAL_BATCH_SIZE="${VAL_BATCH_SIZE:-1}"
 SEED="${SEED:-2026}"
+NUM_WORKERS="${NUM_WORKERS:-0}"
+PREFETCH_FACTOR="${PREFETCH_FACTOR:-2}"
+PIN_MEMORY="${PIN_MEMORY:-0}"
+PERSISTENT_WORKERS="${PERSISTENT_WORKERS:-0}"
 USE_COORDS="${USE_COORDS:-1}"
 SAVE_NPZ="${SAVE_NPZ:-${SAVE_NPY:-0}}"
 SAVE_OVERLAY="${SAVE_OVERLAY:-0}"
@@ -73,12 +77,26 @@ run_experiment() {
         --image_size "${IMAGE_SIZE}"
         --val_batch_size "${VAL_BATCH_SIZE}"
         --seed "${SEED}"
+        --num_workers "${NUM_WORKERS}"
+        --prefetch_factor "${PREFETCH_FACTOR}"
     )
 
     if [[ "${USE_COORDS}" == "1" ]]; then
         cmd+=(--use_coords)
     else
         cmd+=(--no-use_coords)
+    fi
+
+    if [[ "${PIN_MEMORY}" == "1" ]]; then
+        cmd+=(--pin_memory)
+    else
+        cmd+=(--no-pin_memory)
+    fi
+
+    if [[ "${PERSISTENT_WORKERS}" == "1" ]]; then
+        cmd+=(--persistent_workers)
+    else
+        cmd+=(--no-persistent_workers)
     fi
 
     if [[ "${SAVE_NPZ}" == "1" ]]; then

@@ -7,7 +7,7 @@ import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 
 from utils import *
-from trainer import SegTrainer, PatchSegTester, PatchSegInferencer
+from trainer import FullHandBoneSegInferencer, FullHandBoneSegTester, FullHandBoneSegTrainer
 from evaluations.loss import BCEDiceLoss, MSEBCEDiceLoss
 import monai
 from pathlib import Path
@@ -525,6 +525,7 @@ def build_model(args, in_chans):
         swinunetr_kwargs = dict(
             in_channels=in_chans,
             out_channels=30,
+            img_size=(args.image_size, args.image_size),
             depths=(2, 2, 2, 2),
             num_heads=(3, 6, 12, 24),
             feature_size=48,
@@ -615,7 +616,7 @@ def main():
             optimizer = optim.AdamW(net.parameters(), lr=args.lr, amsgrad=True, weight_decay=1e-3)
 
             criterion = MSEBCEDiceLoss(bce_weight=1.0, dice_weight=1.0)
-            trainer = SegTrainer(args, net, train_loader, val_loader, criterion, optimizer, device=device)
+            trainer = FullHandBoneSegTrainer(args, net, train_loader, val_loader, criterion, optimizer, device=device)
             if resume_state is not None:
                 trainer.load_training_state(resume_state)
             trainer.fit(args)
@@ -639,7 +640,7 @@ def main():
             )
             if not (Path(args.checkpoint) / "model_best.pth").exists() and not (Path(args.checkpoint) / "model_best_dice.pth").exists():
                 raise KeyError("Test mode is set but checkpoint does not exist.")
-            tester = PatchSegTester(args, net, test_loader, device=device)
+            tester = FullHandBoneSegTester(args, net, test_loader, device=device)
             tester.test()
 
         elif args.mode == "infer":
@@ -661,7 +662,7 @@ def main():
             )
             if not (Path(args.checkpoint) / "model_best_nsd.pth").exists() and not (Path(args.checkpoint) / "model_best_dice.pth").exists():
                 raise KeyError("Test mode is set but checkpoint does not exist.")
-            inferer = PatchSegInferencer(args, net, infer_loader, device=device)
+            inferer = FullHandBoneSegInferencer(args, net, infer_loader, device=device)
             inferer.test()
 
     finally:

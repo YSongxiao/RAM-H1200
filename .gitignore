@@ -56,3 +56,4 @@ nohup.out
 # Local scripts
 train_seg_33.sh
 run_bash_scripts.sh
+summarize_test_metrics.py
