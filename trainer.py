@@ -138,10 +138,8 @@ def _print_case_inference_time_summary(case_time_records):
     inference_time_df = _build_case_inference_time_df(case_time_records)
     if inference_time_df.empty:
         return
-    print("\nPer-case mean inference time (ms):")
-    print(inference_time_df.to_string(index=False))
     avg_time_ms = float(inference_time_df.iloc[-1]["Mean Inference Time (ms)"])
-    print(f"\nAverage inference time per case: {avg_time_ms:.2f} ms")
+    print(f"Average inference time per case: {avg_time_ms:.2f} ms")
 
 
 class FullHandBoneSegTrainer:
@@ -1690,7 +1688,6 @@ class BEPatchSegTester:
         voe_pc = np.asarray(metrics_dict["voe_pc"], dtype=float)
         msd_pc = np.asarray(metrics_dict["msd_pc"], dtype=float)
         ravd_pc = np.asarray(metrics_dict["ravd_pc"], dtype=float)
-        credit_aware_dice_pc = np.asarray(metrics_dict["credit_aware_dice_pc"], dtype=float)
         precision_pc = np.asarray(metrics_dict["precision_pc"], dtype=float)
         recall_pc = np.asarray(metrics_dict["recall_pc"], dtype=float)
         f1_pc = np.asarray(metrics_dict["f1_pc"], dtype=float)
@@ -1727,15 +1724,6 @@ class BEPatchSegTester:
         )
         ravd_df = pd.DataFrame(ravd_pc, columns=[f"RAVD {name}" for name in class_names])
         ravd_mean_df = pd.DataFrame(_safe_row_nanmean(ravd_pc), columns=["Mean RAVD"])
-        credit_aware_dice_pc = credit_aware_dice_pc[:, :num_fg_classes]
-        credit_aware_dice_df = pd.DataFrame(
-            credit_aware_dice_pc,
-            columns=[f"CreditAwareDice {name}" for name in class_names],
-        )
-        credit_aware_dice_mean_df = pd.DataFrame(
-            _safe_row_nanmean(credit_aware_dice_pc),
-            columns=["Mean CreditAwareDice"],
-        )
         precision_df = pd.DataFrame(precision_pc, columns=[f"Precision {name}" for name in class_names])
         precision_mean_df = pd.DataFrame(_safe_row_nanmean(precision_pc), columns=["Mean Precision"])
         recall_df = pd.DataFrame(recall_pc, columns=[f"Recall {name}" for name in class_names])
@@ -1760,8 +1748,6 @@ class BEPatchSegTester:
                 msd_mean_df,
                 ravd_df,
                 ravd_mean_df,
-                credit_aware_dice_df,
-                credit_aware_dice_mean_df,
                 precision_df,
                 precision_mean_df,
                 recall_df,
@@ -2261,6 +2247,7 @@ class ScoreClsTester:
         print(f"QWK: {metric_dict['overall_qwk']:.4f}")
         print(f"MAE: {metric_dict['overall_mae']:.4f}")
         print(f"Within-1: {metric_dict['overall_within_1']:.4f}")
+        print(f"Pos/Neg ACC: {metric_dict['overall_pos_neg_acc']:.4f}")
 
         _print_case_inference_time_summary(case_inference_times)
 
@@ -2304,6 +2291,7 @@ class ScoreClsTester:
                 "QWK": metrics_dict["overall_qwk"],
                 "MAE": metrics_dict["overall_mae"],
                 "Within1": metrics_dict["overall_within_1"],
+                "Pos/Neg ACC": metrics_dict["overall_pos_neg_acc"],
             }
         ]
         for joint, joint_metric in metrics_dict["joint_metrics"].items():
@@ -2321,6 +2309,7 @@ class ScoreClsTester:
                     "QWK": joint_metric["qwk"],
                     "MAE": joint_metric["mae"],
                     "Within1": joint_metric["within_1"],
+                    "Pos/Neg ACC": joint_metric["pos_neg_acc"],
                 }
             )
         pd.DataFrame(summary_rows).to_csv(save_path / "test_metrics.csv", index=False)

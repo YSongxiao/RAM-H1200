@@ -905,8 +905,6 @@ class BESemanticSegmentationMetrics:
         self.msd_reduced = []
         self.ravd_per_channel = []
         self.ravd_reduced = []
-        self.credit_aware_dice_per_channel = []
-        self.credit_aware_dice_reduced = []
 
         # ====== BE confusion (foreground, no background channel) ======
         self.tp_per_channel = []
@@ -944,15 +942,6 @@ class BESemanticSegmentationMetrics:
             reduction="none"
         )
         self.ravd = RAVDMetric(include_background=True)
-        if credit_matrix is None:
-            credit_matrix = np.eye(num_classes, dtype=np.float32)
-        if not self.include_background and num_classes > 1:
-            credit_matrix = np.asarray(credit_matrix, dtype=np.float32)[1:, 1:]
-        self.credit_aware_dice = CreditAwareDiceScore(
-            credit_matrix=credit_matrix,
-            include_background=True,
-            reduction="none",
-        )
 
     # =======================================================
     #                   UPDATE METRICS
@@ -1062,16 +1051,6 @@ class BESemanticSegmentationMetrics:
         self.recall_reduced.append(recall_pc.mean())
         self.f1_reduced.append(f1_pc.mean())
 
-        # ================= Credit-aware Dice =================
-        credit_aware_dice_score = self.credit_aware_dice(pred_bchw, gt_bchw)
-        credit_aware_dice_pc = np.asarray(credit_aware_dice_score.detach().cpu().numpy(), dtype=float)
-        if credit_aware_dice_pc.ndim == 0:
-            credit_aware_dice_pc = credit_aware_dice_pc[None]
-        if credit_aware_dice_pc.ndim == 2 and credit_aware_dice_pc.shape[0] == 1:
-            credit_aware_dice_pc = credit_aware_dice_pc[0]
-        self.credit_aware_dice_per_channel.append(credit_aware_dice_pc)
-        self.credit_aware_dice_reduced.append(float(np.nanmean(credit_aware_dice_pc)))
-
     # =======================================================
     #                   EXPORT METRICS
     # =======================================================
@@ -1085,14 +1064,12 @@ class BESemanticSegmentationMetrics:
             "voe_pc": np.array(self.voe_per_channel),
             "msd_pc": np.array(self.msd_per_channel),
             "ravd_pc": np.array(self.ravd_per_channel),
-            "credit_aware_dice_pc": np.array(self.credit_aware_dice_per_channel),
 
             "dsc": np.array(self.dsc_reduced),
             "nsd": np.array(self.nsd_reduced),
             "voe": np.array(self.voe_reduced),
             "msd": np.where(np.isfinite(self.msd_reduced), self.msd_reduced, np.nan),
             "ravd": np.array(self.ravd_reduced),
-            "credit_aware_dice": np.array(self.credit_aware_dice_reduced),
 
             # ---- confusion ----
             "tp_pc": np.array(self.tp_per_channel),
@@ -1161,6 +1138,8 @@ class ClassificationMetrics:
         gts = torch.cat(self.gts, dim=0)
         raw_preds = np.asarray([self.score_values[int(idx)] for idx in preds.tolist()], dtype=float)
         raw_gts = np.asarray([self.score_values[int(idx)] for idx in gts.tolist()], dtype=float)
+        pos_neg_preds = (raw_preds != 0).astype(np.int64)
+        pos_neg_gts = (raw_gts != 0).astype(np.int64)
 
         if self.num_classes == 2:
             accuracy_metric = BinaryAccuracy()
@@ -1203,6 +1182,7 @@ class ClassificationMetrics:
         overall_mae = float(np.mean(np.abs(raw_preds - raw_gts)))
         overall_within_1 = float(np.mean(np.abs(raw_preds - raw_gts) <= 1))
         overall_qwk = float(cohen_kappa_score(raw_gts, raw_preds, weights="quadratic"))
+        overall_pos_neg_acc = float(np.mean(pos_neg_preds == pos_neg_gts))
 
         joint_preds = {}
         joint_gts = {}
@@ -1221,6 +1201,8 @@ class ClassificationMetrics:
             joint_gt = torch.cat(joint_gts[joint], dim=0)
             joint_raw_pred = np.asarray([self.score_values[int(idx)] for idx in joint_pred.tolist()], dtype=float)
             joint_raw_gt = np.asarray([self.score_values[int(idx)] for idx in joint_gt.tolist()], dtype=float)
+            joint_pos_neg_pred = (joint_raw_pred != 0).astype(np.int64)
+            joint_pos_neg_gt = (joint_raw_gt != 0).astype(np.int64)
 
             acc = accuracy_metric(joint_pred, joint_gt).item()
             prec = precision_metric(joint_pred, joint_gt).item()
@@ -1257,6 +1239,7 @@ class ClassificationMetrics:
                 "mae": float(np.mean(np.abs(joint_raw_pred - joint_raw_gt))),
                 "within_1": float(np.mean(np.abs(joint_raw_pred - joint_raw_gt) <= 1)),
                 "qwk": float(cohen_kappa_score(joint_raw_gt, joint_raw_pred, weights="quadratic")),
+                "pos_neg_acc": float(np.mean(joint_pos_neg_pred == joint_pos_neg_gt)),
                 "confusion_matrix": confusion_values,
             }
 
@@ -1272,6 +1255,7 @@ class ClassificationMetrics:
             "overall_mae": overall_mae,
             "overall_within_1": overall_within_1,
             "overall_qwk": overall_qwk,
+            "overall_pos_neg_acc": overall_pos_neg_acc,
             "overall_confusion_matrix": overall_cm.flatten().tolist(),
             "joint_metrics": joint_metrics,
             "fname": self.fnames,
