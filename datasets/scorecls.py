@@ -46,6 +46,20 @@ IMAGE_STEM_TO_DISPLAY_NAME = {
     "Tm": "Trapezium",
 }
 
+def resolve_score_file(split_root, score_type):
+    split_root = Path(split_root)
+    score_type = str(score_type).upper()
+    if score_type == "BE":
+        score_path = split_root / "_annotation_be_scores.json"
+    elif score_type == "JSN":
+        score_path = split_root / "_annotation_jsn_scores.json"
+    else:
+        raise ValueError(f"Unsupported score_type: {score_type}")
+
+    if not score_path.exists():
+        raise FileNotFoundError(f"Missing score file: {score_path}")
+    return score_path
+
 
 class BEScoreDataset(Dataset):
     def __init__(
@@ -66,9 +80,7 @@ class BEScoreDataset(Dataset):
         self.transform = transform
         self.to_rgb = to_rgb
 
-        score_path = self.split_root / "_be_jsn_scores.json"
-        if not score_path.exists():
-            raise FileNotFoundError(f"Missing score file: {score_path}")
+        score_path = resolve_score_file(self.split_root, self.score_type)
 
         score_data = json.loads(score_path.read_text())
 
@@ -84,10 +96,7 @@ class BEScoreDataset(Dataset):
             if not case_dir.exists():
                 continue
 
-            if self.score_type not in hand_scores:
-                continue
-
-            joint_scores = hand_scores[self.score_type]
+            joint_scores = hand_scores
             for image_stem, score_key in self.image_stem_to_score_key.items():
                 img_path = case_dir / f"{image_stem}.bmp"
                 if not img_path.exists():
@@ -214,17 +223,14 @@ def seed_scorecls_worker(worker_id):
 
 def collect_score_values(data_root, split, score_type="BE"):
     split_root = Path(data_root) / split
-    score_path = split_root / "_be_jsn_scores.json"
-    if not score_path.exists():
-        raise FileNotFoundError(f"Missing score file: {score_path}")
+    score_path = resolve_score_file(split_root, score_type)
 
     score_data = json.loads(score_path.read_text())
     score_type = str(score_type).upper()
     score_values = set()
     for _, hand_scores in score_data.items():
-        if score_type not in hand_scores:
-            continue
-        for score in hand_scores[score_type].values():
+        joint_scores = hand_scores
+        for score in joint_scores.values():
             score_values.add(int(score))
     return sorted(score_values)
 

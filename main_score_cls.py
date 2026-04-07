@@ -85,11 +85,11 @@ def get_args():
         help="Validation metric used for early stopping and best checkpoint.",
     )
     parser.add_argument("--monitor_mode", type=str, default="max", choices=["min", "max"], help="Monitor mode.")
-    parser.add_argument("--data_path", type=str, default="/mnt/data2/datasx/FullHand/NIPS26/be_joints_dataset_remapped_renamed", help="Dataset root.")
+    parser.add_argument("--data_path", type=str, default="/mnt/data2/datasx/FullHand/NIPS26/RAM-H1200/SvdH_Scoring/SvdH_BE_Scoring", help="Dataset root.")
     parser.add_argument("--checkpoint", type=str, default="./ckpts", help="Checkpoint root or experiment directory.")
     parser.add_argument("--resume", action="store_true", default=False, help="Resume from latest checkpoint.")
     parser.add_argument("--resume_from", type=str, default="", help="Explicit checkpoint file or experiment directory.")
-    parser.add_argument("--trial_name", type=str, default="Benchmark_BEScoring", help="Trial name.")
+    parser.add_argument("--trial_name", type=str, default="Benchmark_JSNScoring", help="Trial name.")
     parser.add_argument("--max_epoch", type=int, default=200, help="Max epochs.")
     parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate.")
     parser.add_argument("--earlystop", action="store_true", default=False, help="Enable early stopping.")
@@ -164,7 +164,6 @@ def prepare_train_run(args):
     args.checkpoint = str(run_dir)
     print(f"Starting new training run at {run_dir}")
     return None
-
 
 def build_model(model_name, in_chans, num_classes, image_size=224):
     out_dims = max(num_classes - 1, 1)

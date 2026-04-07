@@ -162,7 +162,7 @@ def get_args():
     parser.add_argument(
         '--data_path',
         type=str,
-        default="/home/yafei/data/RAM-H1200/split_dataset_via_be_mask",
+        default="/mnt/data2/datasx/FullHand/NIPS26/RAM-H1200/Segmentation",
         help='The path to data.',
     )
 
@@ -453,7 +453,6 @@ def prepare_train_run(args) -> Optional[dict]:
         print(f"Starting new training run at {run_dir}")
     return None
 
-
 def build_model(args, in_chans):
     if args.model == "Unet":
         return monai.networks.nets.DynUNet(spatial_dims=2, in_channels=in_chans, out_channels=30, kernel_size=[3, 3, 3, 3, 3],
@@ -504,7 +503,11 @@ def build_model(args, in_chans):
     elif args.model == "DPMSwinUMamba":
         return get_DPMSwinUMamba(in_channels=in_chans, num_overlap_classes=14, num_classes=30)
     elif args.model == "RefinedSwinUMamba":
-        return get_RefinedSwinUMamba(in_channels=in_chans, num_classes=30, base_ckpt="/mnt/data1/songxiao/FullHandAnnotation/ckpts/Annotation_swinumamba_202602151753/model_best_nsd.pth")
+        return get_RefinedSwinUMamba(
+            in_channels=in_chans,
+            num_classes=30,
+            base_ckpt="./ckpts/Annotation_swinumamba_202602151753/model_best_nsd.pth",
+        )
     elif args.model in {"MambaVisionT", "MambaVisionT2", "MambaVisionS"}:
         variant_map = {
             "MambaVisionT": "mamba_vision_T",

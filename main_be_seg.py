@@ -86,7 +86,7 @@ def get_args():
     parser.add_argument(
         "--data_path",
         type=str,
-        default="/mnt/data2/datasx/FullHand/NIPS26/split_dataset_via_be_mask_remapped",
+        default="/mnt/data2/datasx/FullHand/NIPS26/RAM-H1200/Segmentation",
         help="Dataset root.",
     )
     parser.add_argument("--pretrained_weights", type=str, default="", help="Optional pretrained checkpoint.")
