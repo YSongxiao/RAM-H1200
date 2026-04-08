@@ -50,11 +50,11 @@ fi
 #   "DisplayName::--model SwinUMamba --checkpoint ./ckpts/your_experiment_dir"
 # Leave empty to run a single test with the default variables above.
 EXPERIMENTS=(
-#     "Baseline_BoneSeg_SwinUMamba::--model SwinUMamba --checkpoint ./ckpts/Baseline_BoneSeg_swinumamba_20260331000732 --save_csv"
-    # "Baseline_BoneSeg_SwinUNETR::--model SwinUNETR --checkpoint ./ckpts/Baseline_BoneSeg_swinunetr_202603291751 --save_csv"
-    # "Baseline_BoneSeg_TansUNet::--model TransUnet --checkpoint ./ckpts/Baseline_BoneSeg_transunet_20260401113613 --save_csv"
-    # "Baseline_BoneSeg_UMambaEnc::--model UMambaEnc --checkpoint ./ckpts/Baseline_BoneSeg_umambaenc_20260331224356 --save_csv"
-    # "Baseline_BoneSeg_Unet::--model Unet --checkpoint ./ckpts/Baseline_BoneSeg_unet_20260401195552 --save_csv"
+    "Baseline_BoneSeg_SwinUMamba::--model SwinUMamba --checkpoint ./ckpts/Baseline_BoneSeg_swinumamba_20260331000732 --save_csv"
+    "Baseline_BoneSeg_SwinUNETR::--model SwinUNETR --checkpoint ./ckpts/Baseline_BoneSeg_swinunetr_202603291751 --save_csv"
+    "Baseline_BoneSeg_TansUNet::--model TransUnet --checkpoint ./ckpts/Baseline_BoneSeg_transunet_20260401113613 --save_csv"
+    "Baseline_BoneSeg_UMambaEnc::--model UMambaEnc --checkpoint ./ckpts/Baseline_BoneSeg_umambaenc_20260331224356 --save_csv"
+    "Baseline_BoneSeg_Unet::--model Unet --checkpoint ./ckpts/Baseline_BoneSeg_unet_20260401195552 --save_csv"
     "Baseline_BoneSeg_Unet++::--model Unet++ --checkpoint ./ckpts/Baseline_BoneSeg_unet++_20260402182806 --save_csv --save_npz --save_overlay"
     "Baseline_BoneSeg_MambaVision::--model MambaVisionT --checkpoint ./ckpts/Baseline_BoneSeg_mambavisiont_20260407035837 --save_csv"
 )

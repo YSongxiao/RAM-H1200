@@ -142,6 +142,20 @@ def _print_case_inference_time_summary(case_time_records):
     print(f"Average inference time per case: {avg_time_ms:.2f} ms")
 
 
+def _save_case_inference_time_summary(output_dir, case_time_records, filename="inference_time.txt"):
+    inference_time_df = _build_case_inference_time_df(case_time_records)
+    if inference_time_df.empty:
+        return
+
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_path = output_dir / filename
+
+    with output_path.open("w", encoding="utf-8") as f:
+        avg_time_ms = float(inference_time_df.iloc[-1]["Mean Inference Time (ms)"])
+        f.write(f"Average inference time per case: {avg_time_ms:.4f} ms\n")
+
+
 class FullHandBoneSegTrainer:
     def __init__(self, args, net, train_loader, val_loader, criterion, optimizer, num_classes=30, device="cuda:0"):
         self.args = args
@@ -1118,6 +1132,7 @@ class FullHandBoneSegTester:
                         )
 
         _print_case_inference_time_summary(case_inference_times)
+        _save_case_inference_time_summary(self.args.checkpoint, case_inference_times)
 
         if self.save_csv:
             self.create_csv(self.args)
@@ -1576,6 +1591,7 @@ class BEPatchSegTester:
                         )
 
         _print_case_inference_time_summary(case_inference_times)
+        _save_case_inference_time_summary(self.args.checkpoint, case_inference_times)
 
         if self.save_csv:
             self.create_csv()
@@ -2309,6 +2325,7 @@ class ScoreClsTester:
         print(f"Pos/Neg ACC: {metric_dict['overall_pos_neg_acc']:.4f}")
 
         _print_case_inference_time_summary(case_inference_times)
+        _save_case_inference_time_summary(self.args.checkpoint, case_inference_times)
 
         if self.save_csv:
             self.create_csv(metric_dict, rows, confmat)
