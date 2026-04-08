@@ -36,7 +36,7 @@ MODE="${MODE:-train}"
 MODEL="${MODEL:-SwinUMamba}"
 TRIAL_NAME="${TRIAL_NAME:-Benchmark_BoneSeg}"
 CHECKPOINT="${CHECKPOINT:-./ckpts}"
-DATA_PATH="${DATA_PATH:-/home/yafei/data/RAM-H1200/split_dataset_via_be_mask_remapped}"
+DATA_PATH="${DATA_PATH:-/home/yafei/data/RAM-H1200/Segmentation}"
 PRETRAINED_WEIGHTS="${PRETRAINED_WEIGHTS:-./ckpts/Annotation_swinumamba_202601210504/model_best_dice.pth1}"
 
 IMAGE_SIZE="${IMAGE_SIZE:-512}"

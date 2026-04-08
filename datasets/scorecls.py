@@ -248,6 +248,8 @@ def get_be_score_dataloader(
     drop_last=False,
     seed=None,
     distributed=False,
+    persistent_workers=False,
+    prefetch_factor=2,
 ):
     sampler = None
     generator = None
@@ -282,4 +284,7 @@ def get_be_score_dataloader(
         drop_last=drop_last,
         worker_init_fn=seed_scorecls_worker if num_workers > 0 else None,
         generator=generator,
+        persistent_workers=bool(persistent_workers and num_workers > 0),
+        prefetch_factor=int(prefetch_factor) if num_workers > 0 else None,
+        multiprocessing_context="spawn" if num_workers > 0 and distributed else None,
     )

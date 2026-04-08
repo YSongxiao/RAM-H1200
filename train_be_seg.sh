@@ -37,7 +37,7 @@ MODEL="${MODEL:-UMambaEnc}"
 LOSS="${LOSS:-creditaware}"
 TRIAL_NAME="${TRIAL_NAME:-Benchmark_BESeg}"
 CHECKPOINT="${CHECKPOINT:-./ckpts}"
-DATA_PATH="${DATA_PATH:-/home/yafei/data/RAM-H1200/split_dataset_via_be_mask_remapped}"
+DATA_PATH="${DATA_PATH:-/home/yafei/data/RAM-H1200/Segmentation}"
 PRETRAINED_WEIGHTS="${PRETRAINED_WEIGHTS:-}"
 
 IMAGE_SIZE="${IMAGE_SIZE:-256}"

@@ -14,7 +14,6 @@ import torch.optim as optim
 from torch.nn.parallel import DistributedDataParallel as DDP
 
 from datasets.scorecls import BEScoreDataset, collect_score_values, get_be_score_dataloader
-from models.MedMamba import VSSM as MedMamba
 from trainer import ScoreClsTester, ScoreClsTrainer
 from utils import get_cls_transform, seed_everything
 
@@ -97,9 +96,12 @@ def get_args():
     parser.add_argument("--earlystop", action="store_true", default=False, help="Enable early stopping.")
     parser.add_argument("--earlystop_patience", type=int, default=20, help="Early stopping patience.")
     parser.add_argument("--num_workers", type=int, default=4, help="DataLoader workers.")
+    parser.add_argument("--prefetch_factor", type=int, default=2, help="Prefetched batches per worker.")
     parser.add_argument("--pin_memory", dest="pin_memory", action="store_true", help="Enable pin memory.")
     parser.add_argument("--no-pin_memory", dest="pin_memory", action="store_false", help="Disable pin memory.")
-    parser.set_defaults(pin_memory=True)
+    parser.add_argument("--persistent_workers", dest="persistent_workers", action="store_true", help="Keep workers alive.")
+    parser.add_argument("--no-persistent_workers", dest="persistent_workers", action="store_false", help="Disable persistent workers.")
+    parser.set_defaults(pin_memory=True, persistent_workers=False)
     parser.add_argument("--save_csv", action="store_true", default=False, help="Save csv summaries in test mode.")
     parser.add_argument("--launcher", type=str, default="none", choices=["none", "ddp"], help="Launch mode.")
     parser.add_argument("--local_rank", type=int, default=-1, help="Local rank for DDP.")
@@ -250,6 +252,8 @@ def build_model(model_name, in_chans, num_classes, image_size=224):
             out_channels=out_dims,
         )
     if model_name == "MedMamba":
+        from models.MedMamba import VSSM as MedMamba
+
         return MedMamba(in_chans=in_chans, num_classes=out_dims)
 
     timm_models = {
@@ -284,7 +288,7 @@ def build_criterion(args, train_dataset, device):
     return nn.BCEWithLogitsLoss(pos_weight=pos_weight)
 
 
-def build_loader(dataset, batch_size, shuffle, args, oversample=False, distributed=False):
+def build_loader(dataset, batch_size, shuffle, args, oversample=False, distributed=False, drop_last=False):
     return get_be_score_dataloader(
         dataset,
         batch_size=batch_size,
@@ -293,9 +297,11 @@ def build_loader(dataset, batch_size, shuffle, args, oversample=False, distribut
         oversample_power=args.oversample_power,
         num_workers=args.num_workers,
         pin_memory=args.pin_memory and torch.cuda.is_available(),
-        drop_last=False,
+        drop_last=drop_last,
         seed=args.seed,
         distributed=distributed,
+        persistent_workers=args.persistent_workers,
+        prefetch_factor=args.prefetch_factor,
     )
 
 
@@ -360,6 +366,7 @@ def main():
                 args=args,
                 oversample=args.oversample,
                 distributed=getattr(args, "is_ddp", False),
+                drop_last=True,
             )
             val_loader = build_loader(
                 val_dataset,
@@ -368,6 +375,7 @@ def main():
                 args=args,
                 oversample=False,
                 distributed=False,
+                drop_last=False,
             )
 
             optimizer = optim.AdamW(net.parameters(), lr=args.lr, weight_decay=1e-3)
@@ -417,6 +425,7 @@ def main():
             args=args,
             oversample=False,
             distributed=False,
+            drop_last=False,
         )
         tester = ScoreClsTester(
             args,

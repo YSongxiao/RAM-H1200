@@ -9,6 +9,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "${SCRIPT_DIR}"
 
+export MPLCONFIGDIR="${MPLCONFIGDIR:-/tmp/matplotlib}"
+mkdir -p "${MPLCONFIGDIR}"
+
 count_visible_gpus() {
     if [[ -n "${CUDA_VISIBLE_DEVICES:-}" ]]; then
         local devices="${CUDA_VISIBLE_DEVICES// /}"
@@ -48,7 +51,8 @@ MAX_EPOCH="${MAX_EPOCH:-200}"
 LR="${LR:-1e-4}"
 SCHEDULER="${SCHEDULER:-CosineAnnealing}"
 SEED="${SEED:-2026}"
-NUM_WORKERS="${NUM_WORKERS:-2}"
+NUM_WORKERS="${NUM_WORKERS:-0}"
+PREFETCH_FACTOR="${PREFETCH_FACTOR:-2}"
 MONITOR_METRIC="${MONITOR_METRIC:-qwk}"
 EARLYSTOP_PATIENCE="${EARLYSTOP_PATIENCE:-20}"
 OVERSAMPLE_POWER="${OVERSAMPLE_POWER:-1.0}"
@@ -58,7 +62,8 @@ TO_RGB="${TO_RGB:-0}"
 OVERSAMPLE="${OVERSAMPLE:-0}"
 USE_CLASS_WEIGHT="${USE_CLASS_WEIGHT:-0}"
 EARLYSTOP="${EARLYSTOP:-0}"
-PIN_MEMORY="${PIN_MEMORY:-1}"
+PIN_MEMORY="${PIN_MEMORY:-0}"
+PERSISTENT_WORKERS="${PERSISTENT_WORKERS:-0}"
 
 # 多卡顺序实验。格式：
 #   "最终TrialName::额外参数"
@@ -69,16 +74,48 @@ PIN_MEMORY="${PIN_MEMORY:-1}"
 # )
 # 留空时按上面的默认变量只跑一个实验。
 EXPERIMENTS=(
-    "ResNet34_JSN_DDP::--model ResNet34 --score_type JSN"
-    "DenseNet_JSN_DDP::--model DenseNet --score_type JSN"
-    "MedMamba_JSN_DDP::--model MedMamba --score_type JSN"
-    "EfficientFormer_JSN_DDP::--model EfficientFormer --score_type JSN"
-    "LeViT_JSN_DDP::--model LeViT --score_type JSN"
-    "MobileViT_JSN_DDP::--model MobileViT --score_type JSN"
-    "ConvNeXtV2_JSN_DDP::--model ConvNeXtV2 --score_type JSN"
-    "EfficientNetV2_JSN_DDP::--model EfficientNetV2 --score_type JSN"
-    "MambaVisionT_JSN_DDP::--model MambaVisionT --score_type JSN"
+    # "ResNet34_JSN::--model ResNet34 --score_type JSN"
+    # "DenseNet_JSN::--model DenseNet --score_type JSN"
+    # "MedMamba_JSN::--model MedMamba --score_type JSN"
+    # "EfficientFormer_JSN::--model EfficientFormer --score_type JSN"
+    "LeViT_JSN::--model LeViT --score_type JSN"
+    "MobileViT_JSN::--model MobileViT --score_type JSN"
+    "ConvNeXtV2_JSN::--model ConvNeXtV2 --score_type JSN"
+    "EfficientNetV2_JSN::--model EfficientNetV2 --score_type JSN"
+    "MambaVisionT_JSN::--model MambaVisionT --score_type JSN"
 )
+
+python_module_available() {
+    local module_name="$1"
+    "${PYTHON_BIN}" -c "import importlib.util; print(importlib.util.find_spec('${module_name}') is not None)" 2>/dev/null | grep -qx "True"
+}
+
+model_is_available() {
+    local model_name="$1"
+    case "${model_name}" in
+        MedMamba)
+            python_module_available "mamba_ssm" || python_module_available "selective_scan"
+            ;;
+        MambaVisionT|MambaVisionT2|MambaVisionS)
+            python_module_available "mambavision"
+            ;;
+        *)
+            return 0
+            ;;
+    esac
+}
+
+extract_model_name() {
+    local -a spec_args=("$@")
+    local idx
+    for ((idx = 0; idx < ${#spec_args[@]}; idx++)); do
+        if [[ "${spec_args[idx]}" == "--model" ]] && (( idx + 1 < ${#spec_args[@]} )); then
+            echo "${spec_args[idx + 1]}"
+            return 0
+        fi
+    done
+    echo "${MODEL}"
+}
 
 run_experiment() {
     local exp_name="$1"
@@ -109,6 +146,7 @@ run_experiment() {
         --scheduler "${SCHEDULER}"
         --seed "${SEED}"
         --num_workers "${NUM_WORKERS}"
+        --prefetch_factor "${PREFETCH_FACTOR}"
         --monitor_metric "${MONITOR_METRIC}"
         --earlystop_patience "${EARLYSTOP_PATIENCE}"
         --oversample_power "${OVERSAMPLE_POWER}"
@@ -142,6 +180,12 @@ run_experiment() {
         cmd+=(--pin_memory)
     else
         cmd+=(--no-pin_memory)
+    fi
+
+    if [[ "${PERSISTENT_WORKERS}" == "1" ]]; then
+        cmd+=(--persistent_workers)
+    else
+        cmd+=(--no-persistent_workers)
     fi
 
     cmd+=("$@")
@@ -198,6 +242,12 @@ for idx in "${!EXPERIMENTS[@]}"; do
     fi
 
     read -r -a exp_args <<< "${exp_args_str}"
+    exp_model="$(extract_model_name "${exp_args[@]}")"
+
+    if ! model_is_available "${exp_model}"; then
+        echo "[${exp_idx}/${#EXPERIMENTS[@]}] Skipping ${exp_name} because dependency is unavailable for model=${exp_model}"
+        continue
+    fi
 
     echo "[${exp_idx}/${#EXPERIMENTS[@]}] Starting ${exp_name}"
     if run_experiment "${exp_name}" "${exp_args[@]}" "$@"; then

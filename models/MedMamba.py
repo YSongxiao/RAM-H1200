@@ -9,12 +9,18 @@ import torch.nn.functional as F
 import torch.utils.checkpoint as checkpoint
 from einops import rearrange, repeat
 from timm.models.layers import DropPath, to_2tuple, trunc_normal_
+import warnings
+
+selective_scan_fn = None
+selective_scan_ref = None
 try:
     from mamba_ssm.ops.selective_scan_interface import selective_scan_fn, selective_scan_ref
 except:
     pass
 
 # an alternative for mamba_ssm (in which causal_conv1d is needed)
+selective_scan_fn_v1 = None
+selective_scan_ref_v1 = None
 try:
     from selective_scan import selective_scan_fn as selective_scan_fn_v1
     from selective_scan import selective_scan_ref as selective_scan_ref_v1
@@ -312,8 +318,19 @@ class SS2D(nn.Module):
         self.A_logs = self.A_log_init(self.d_state, self.d_inner, copies=4, merge=True) # (K=4, D, N)
         self.Ds = self.D_init(self.d_inner, copies=4, merge=True) # (K=4, D, N)
 
-        # self.selective_scan = selective_scan_fn
-        self.forward_core = self.forward_corev0
+        if selective_scan_fn is not None:
+            self.forward_core = self.forward_corev0
+        elif selective_scan_fn_v1 is not None:
+            self.forward_core = self.forward_corev1
+            warnings.warn(
+                "Falling back to selective_scan v1 because mamba_ssm selective_scan is unavailable.",
+                RuntimeWarning,
+            )
+        else:
+            raise ImportError(
+                "No selective_scan backend is available. Install `mamba_ssm` or the alternative "
+                "`selective_scan` package required by MedMamba."
+            )
 
         self.out_norm = nn.LayerNorm(self.d_inner)
         self.out_proj = nn.Linear(self.d_inner, self.d_model, bias=bias, **factory_kwargs)
@@ -756,11 +773,11 @@ class VSSM(nn.Module):
         x = self.head(x)
         return x
 
+if __name__ == "__main__":
+    medmamba_t = VSSM(depths=[2, 2, 4, 2], dims=[96, 192, 384, 768], num_classes=6).to("cuda")
+    medmamba_s = VSSM(depths=[2, 2, 8, 2], dims=[96, 192, 384, 768], num_classes=6).to("cuda")
+    medmamba_b = VSSM(depths=[2, 2, 12, 2], dims=[128, 256, 512, 1024], num_classes=6).to("cuda")
 
-medmamba_t = VSSM(depths=[2, 2, 4, 2],dims=[96,192,384,768],num_classes=6).to("cuda")
-medmamba_s = VSSM(depths=[2, 2, 8, 2],dims=[96,192,384,768],num_classes=6).to("cuda")
-medmamba_b = VSSM(depths=[2, 2, 12, 2],dims=[128,256,512,1024],num_classes=6).to("cuda")
+    data = torch.randn(1, 3, 224, 224).to("cuda")
 
-data = torch.randn(1,3,224,224).to("cuda")
-
-print(medmamba_t(data).shape)
+    print(medmamba_t(data).shape)
