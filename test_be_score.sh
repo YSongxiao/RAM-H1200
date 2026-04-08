@@ -16,47 +16,34 @@ export CUDA_VISIBLE_DEVICES="${GPU_ID}"
 STOP_ON_ERROR="${STOP_ON_ERROR:-1}"
 
 MODE="${MODE:-test}"
-MODEL="${MODEL:-SwinUMamba}"
+SCORE_TYPE="${SCORE_TYPE:-BE}"
+MODEL="${MODEL:-ResNet34}"
 CHECKPOINT="${CHECKPOINT:-}"
-DATA_PATH="${DATA_PATH:-/home/yafei/data/RAM-H1200/Segmentation}"
+DATA_PATH="${DATA_PATH:-/mnt/data2/datasx/FullHand/NIPS26/RAM-H1200/SvdH_Scoring/SvdH_BE_Scoring}"
 
-IMAGE_SIZE="${IMAGE_SIZE:-512}"
-VAL_BATCH_SIZE="${VAL_BATCH_SIZE:-1}"
+IMAGE_SIZE="${IMAGE_SIZE:-224}"
+VAL_BATCH_SIZE="${VAL_BATCH_SIZE:-32}"
 SEED="${SEED:-2026}"
 NUM_WORKERS="${NUM_WORKERS:-4}"
-PREFETCH_FACTOR="${PREFETCH_FACTOR:-2}"
-PIN_MEMORY="${PIN_MEMORY:-0}"
-PERSISTENT_WORKERS="${PERSISTENT_WORKERS:-0}"
-USE_COORDS="${USE_COORDS:-1}"
-SAVE_NPZ="${SAVE_NPZ:-${SAVE_NPY:-0}}"
-SAVE_OVERLAY="${SAVE_OVERLAY:-0}"
-SAVE_UNCERTAINTY_OVERLAY="${SAVE_UNCERTAINTY_OVERLAY:-0}"
+PIN_MEMORY="${PIN_MEMORY:-1}"
+TO_RGB="${TO_RGB:-0}"
 SAVE_CSV="${SAVE_CSV:-1}"
-SAVE_PRED="${SAVE_PRED:-0}"
-SAVE_MASK="${SAVE_MASK:-0}"
 
 if [[ "${MODE}" != "test" ]]; then
     echo "MODE must be 'test', got: ${MODE}" >&2
     exit 1
 fi
 
-if [[ "${USE_COORDS}" != "1" ]]; then
-    echo "main_seg.py currently defaults to use_coords=True and does not expose --no-use_coords." >&2
-    echo "Please keep USE_COORDS=1 for test_seg.sh." >&2
-    exit 1
-fi
-
-# Batch experiments run sequentially. Format:
-#   "DisplayName::--model SwinUMamba --checkpoint ./ckpts/your_experiment_dir"
-# Leave empty to run a single test with the default variables above.
 EXPERIMENTS=(
-#     "Baseline_BoneSeg_SwinUMamba::--model SwinUMamba --checkpoint ./ckpts/Baseline_BoneSeg_swinumamba_20260331000732 --save_csv"
-    # "Baseline_BoneSeg_SwinUNETR::--model SwinUNETR --checkpoint ./ckpts/Baseline_BoneSeg_swinunetr_202603291751 --save_csv"
-    # "Baseline_BoneSeg_TansUNet::--model TransUnet --checkpoint ./ckpts/Baseline_BoneSeg_transunet_20260401113613 --save_csv"
-    # "Baseline_BoneSeg_UMambaEnc::--model UMambaEnc --checkpoint ./ckpts/Baseline_BoneSeg_umambaenc_20260331224356 --save_csv"
-    # "Baseline_BoneSeg_Unet::--model Unet --checkpoint ./ckpts/Baseline_BoneSeg_unet_20260401195552 --save_csv"
-    "Baseline_BoneSeg_Unet++::--model Unet++ --checkpoint ./ckpts/Baseline_BoneSeg_unet++_20260402182806 --save_csv --save_npz --save_overlay"
-    "Baseline_BoneSeg_MambaVision::--model MambaVisionT --checkpoint ./ckpts/Baseline_BoneSeg_mambavisiont_20260407035837 --save_csv"
+    "Baseline_BEScore_ConvNeXtV2::--model ConvNeXtV2 --checkpoint ./ckpts/Baseline_BEScore_be_convnextv2_20260406214233"
+    "Baseline_BEScore_DenseNet::--model DenseNet --checkpoint ./ckpts/Baseline_BEScore_be_densenet_20260406043912"
+    "Baseline_BEScore_EfficientFormer::--model EfficientFormer --checkpoint ./ckpts/Baseline_BEScore_be_efficientformer_20260406124424"
+    "Baseline_BEScore_EfficientNetV2::--model EfficientNetV2 --checkpoint ./ckpts/Baseline_BEScore_be_efficientnetv2_20260407010854"
+    "Baseline_BEScore_LeViT::--model LeViT --checkpoint ./ckpts/Baseline_BEScore_be_levit_20260406151143"
+    "Baseline_BEScore_MambaVisionT::--model MambaVisionT --checkpoint ./ckpts/Baseline_BEScore_be_mambavisiont_20260406192728"
+    "Baseline_BEScore_MedMamba::--model MedMamba --checkpoint ./ckpts/Baseline_BEScore_be_medmamba_20260406065848"
+    "Baseline_BEScore_MobileViT::--model MobileViT --checkpoint ./ckpts/Baseline_BEScore_be_mobilevit_20260406171657"
+    "Baseline_BEScore_ResNet34::--model ResNet34 --checkpoint ./ckpts/Baseline_BEScore_be_resnet34_20260406034451"
 )
 
 has_checkpoint_arg() {
@@ -80,9 +67,9 @@ run_experiment() {
 
     local cmd=(
         "${PYTHON_BIN}"
-        main_seg.py
-        --launcher none
+        main_score_cls.py
         --mode "${MODE}"
+        --score_type "${SCORE_TYPE}"
         --model "${MODEL}"
         --checkpoint "${CHECKPOINT}"
         --data_path "${DATA_PATH}"
@@ -90,8 +77,8 @@ run_experiment() {
         --val_batch_size "${VAL_BATCH_SIZE}"
         --seed "${SEED}"
         --num_workers "${NUM_WORKERS}"
-        --prefetch_factor "${PREFETCH_FACTOR}"
-        --use_coords
+        --no-amp
+        --no-to_rgb
     )
 
     if [[ "${PIN_MEMORY}" == "1" ]]; then
@@ -100,41 +87,20 @@ run_experiment() {
         cmd+=(--no-pin_memory)
     fi
 
-    if [[ "${PERSISTENT_WORKERS}" == "1" ]]; then
-        cmd+=(--persistent_workers)
-    else
-        cmd+=(--no-persistent_workers)
-    fi
-
-    if [[ "${SAVE_NPZ}" == "1" ]]; then
-        cmd+=(--save_npz)
-    fi
-
-    if [[ "${SAVE_OVERLAY}" == "1" ]]; then
-        cmd+=(--save_overlay)
-    fi
-
-    if [[ "${SAVE_UNCERTAINTY_OVERLAY}" == "1" ]]; then
-        cmd+=(--save_uncertainty_overlay)
+    if [[ "${TO_RGB}" == "1" ]]; then
+        cmd+=(--to_rgb)
     fi
 
     if [[ "${SAVE_CSV}" == "1" ]]; then
         cmd+=(--save_csv)
     fi
 
-    if [[ "${SAVE_PRED}" == "1" ]]; then
-        cmd+=(--save_pred)
-    fi
-
-    if [[ "${SAVE_MASK}" == "1" ]]; then
-        cmd+=(--save_mask)
-    fi
-
     cmd+=("$@")
 
     echo "=================================================="
-    echo "Launching bone segmentation test: ${exp_name:-single}"
+    echo "Launching BE scoring test: ${exp_name:-single}"
     echo "GPU_ID=${GPU_ID}"
+    echo "SCORE_TYPE=${SCORE_TYPE}"
     echo "MODEL=${MODEL}"
     echo "DATA_PATH=${DATA_PATH}"
     echo "Command: ${cmd[*]}"
@@ -144,8 +110,9 @@ run_experiment() {
 }
 
 if [[ "${#EXPERIMENTS[@]}" -eq 0 ]]; then
-    echo "Launching single bone segmentation test"
+    echo "Launching single BE scoring test"
     echo "GPU_ID=${GPU_ID}"
+    echo "SCORE_TYPE=${SCORE_TYPE}"
     echo "MODEL=${MODEL}"
     echo "CHECKPOINT=${CHECKPOINT}"
     echo "DATA_PATH=${DATA_PATH}"
@@ -153,8 +120,9 @@ if [[ "${#EXPERIMENTS[@]}" -eq 0 ]]; then
     exit 0
 fi
 
-echo "Launching ${#EXPERIMENTS[@]} bone segmentation tests sequentially"
+echo "Launching ${#EXPERIMENTS[@]} BE scoring tests sequentially"
 echo "GPU_ID=${GPU_ID}"
+echo "Fallback SCORE_TYPE=${SCORE_TYPE}"
 echo "Fallback MODEL=${MODEL}"
 echo "Fallback CHECKPOINT=${CHECKPOINT}"
 echo "DATA_PATH=${DATA_PATH}"
@@ -196,4 +164,4 @@ if [[ "${#failed_experiments[@]}" -gt 0 ]]; then
     exit 1
 fi
 
-echo "All bone segmentation tests finished successfully."
+echo "All BE scoring tests finished successfully."

@@ -43,12 +43,14 @@ fi
 #   "DisplayName::--model UMambaEnc --checkpoint ./ckpts/your_experiment_dir"
 # Leave empty to run a single test with the default variables above.
 EXPERIMENTS=(
-     "Baseline_BESeg_UMambaEnc::--model UMambaEnc --checkpoint ./ckpts/Baseline_BESeg_DiceCE_umambaenc_20260405014638"
-     "Baseline_BESeg_SwinUMamba::--model SwinUMamba --checkpoint ./ckpts/Baseline_BESeg_DiceCE_swinumamba_20260405031214"
-     "Baseline_BESeg_TransUnet::--model TransUnet --checkpoint ./ckpts/Baseline_BESeg_DiceCE_transunet_20260405154348"
-     "Baseline_BESeg_SwinUNETR::--model SwinUNETR --checkpoint ./ckpts/Baseline_BESeg_DiceCE_swinunetr_20260405144444"
-     "Baseline_BESeg_UNet::--model Unet --checkpoint ./ckpts/Baseline_BESeg_DiceCE_unet_20260405171220"
-     "Baseline_BESeg_Unet++::--model Unet++ --checkpoint ./ckpts/Baseline_BESeg_DiceCE_unet++_20260405184429"
+#     "Baseline_BESeg_UMambaEnc::--model UMambaEnc --checkpoint ./ckpts/Baseline_BESeg_DiceCE_umambaenc_20260405014638"
+#     "Baseline_BESeg_SwinUMamba::--model SwinUMamba --checkpoint ./ckpts/Baseline_BESeg_DiceCE_swinumamba_20260405031214"
+#     "Baseline_BESeg_TransUnet::--model TransUnet --checkpoint ./ckpts/Baseline_BESeg_DiceCE_transunet_20260405154348"
+#     "Baseline_BESeg_SwinUNETR::--model SwinUNETR --checkpoint ./ckpts/Baseline_BESeg_DiceCE_swinunetr_20260405144444"
+#     "Baseline_BESeg_UNet::--model Unet --checkpoint ./ckpts/Baseline_BESeg_DiceCE_unet_20260405171220"
+#     "Baseline_BESeg_Unet++::--model Unet++ --checkpoint ./ckpts/Baseline_BESeg_DiceCE_unet++_20260405184429"
+      "Baseline_BESeg_MambaVision::--model MambaVisionT --checkpoint ./ckpts/Baseline_BESeg_DiceCE_mambavisiont_20260407130414 --save_csv"
+
 )
 
 has_checkpoint_arg() {
