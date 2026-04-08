@@ -298,6 +298,8 @@ def main():
         num_classes = len(train_dataset.score_values)
         in_chans = 3 if args.to_rgb else 1
         net = build_model(args.model, in_chans, num_classes, image_size=args.image_size).to(device)
+        n_params = sum(p.numel() for p in net.parameters())
+        print(f"Total parameters: {n_params / 1e6:.2f} M ({n_params:,} parameters)")
         if resume_state is not None:
             net.load_state_dict(resume_state["model"])
 
@@ -353,6 +355,8 @@ def main():
     num_classes = len(test_dataset.score_values)
     in_chans = 3 if args.to_rgb else 1
     net = build_model(args.model, in_chans, num_classes, image_size=args.image_size).to(device)
+    n_params = sum(p.numel() for p in net.parameters())
+    print(f"Total parameters: {n_params / 1e6:.2f} M ({n_params:,} parameters)")
     test_loader = build_loader(
         test_dataset,
         batch_size=args.val_batch_size,
