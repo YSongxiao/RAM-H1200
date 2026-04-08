@@ -6,6 +6,8 @@ import numpy as np
 import torch
 from PIL import Image
 from torch.utils.data import DataLoader, Dataset, WeightedRandomSampler
+from torch.utils.data.distributed import DistributedSampler
+import torch.distributed as dist
 
 
 IMAGE_STEM_TO_SCORE_KEY_BE = {
@@ -245,14 +247,29 @@ def get_be_score_dataloader(
     pin_memory=False,
     drop_last=False,
     seed=None,
+    distributed=False,
 ):
     sampler = None
     generator = None
     if seed is not None:
         generator = torch.Generator()
         generator.manual_seed(int(seed))
+    if distributed and not dist.is_available():
+        raise RuntimeError("Distributed dataloader requested but torch.distributed is unavailable.")
+    if distributed and not dist.is_initialized():
+        raise RuntimeError("Distributed dataloader requested before process group initialization.")
     if oversample:
+        if distributed:
+            raise ValueError("Oversampling is not supported with distributed training for score classification.")
         sampler = build_be_score_sampler(dataset, power=oversample_power, generator=generator)
+        shuffle = False
+    elif distributed:
+        sampler = DistributedSampler(
+            dataset,
+            shuffle=shuffle,
+            drop_last=drop_last,
+            seed=int(seed) if seed is not None else 0,
+        )
         shuffle = False
 
     return DataLoader(

@@ -8,8 +8,10 @@ import monai
 import numpy as np
 os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
 import torch
+import torch.distributed as dist
 import torch.nn as nn
 import torch.optim as optim
+from torch.nn.parallel import DistributedDataParallel as DDP
 
 from datasets.scorecls import BEScoreDataset, collect_score_values, get_be_score_dataloader
 from models.MedMamba import VSSM as MedMamba
@@ -99,7 +101,45 @@ def get_args():
     parser.add_argument("--no-pin_memory", dest="pin_memory", action="store_false", help="Disable pin memory.")
     parser.set_defaults(pin_memory=True)
     parser.add_argument("--save_csv", action="store_true", default=False, help="Save csv summaries in test mode.")
+    parser.add_argument("--launcher", type=str, default="none", choices=["none", "ddp"], help="Launch mode.")
+    parser.add_argument("--local_rank", type=int, default=-1, help="Local rank for DDP.")
     return parser.parse_args()
+
+
+def init_distributed(args):
+    args.is_ddp = args.launcher == "ddp"
+
+    if not args.is_ddp:
+        args.rank = 0
+        args.world_size = 1
+        return torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
+    if not torch.cuda.is_available():
+        raise RuntimeError("DDP launch requires CUDA.")
+
+    if not dist.is_initialized():
+        args.rank = int(os.environ["RANK"])
+        args.world_size = int(os.environ["WORLD_SIZE"])
+        args.local_rank = int(os.environ.get("LOCAL_RANK", args.local_rank if args.local_rank >= 0 else 0))
+        torch.cuda.set_device(args.local_rank)
+        dist.init_process_group(backend="nccl", init_method="env://")
+    else:
+        args.rank = dist.get_rank()
+        args.world_size = dist.get_world_size()
+        if args.local_rank < 0:
+            args.local_rank = int(os.environ.get("LOCAL_RANK", 0))
+        torch.cuda.set_device(args.local_rank)
+
+    return torch.device(f"cuda:{args.local_rank}")
+
+
+def cleanup_distributed(args):
+    if getattr(args, "is_ddp", False) and dist.is_initialized():
+        dist.destroy_process_group()
+
+
+def is_main_process(args):
+    return getattr(args, "rank", 0) == 0
 
 
 def resolve_checkpoint_artifact(path: Path) -> Tuple[Path, Path]:
@@ -244,7 +284,7 @@ def build_criterion(args, train_dataset, device):
     return nn.BCEWithLogitsLoss(pos_weight=pos_weight)
 
 
-def build_loader(dataset, batch_size, shuffle, args, oversample=False):
+def build_loader(dataset, batch_size, shuffle, args, oversample=False, distributed=False):
     return get_be_score_dataloader(
         dataset,
         batch_size=batch_size,
@@ -255,6 +295,7 @@ def build_loader(dataset, batch_size, shuffle, args, oversample=False):
         pin_memory=args.pin_memory and torch.cuda.is_available(),
         drop_last=False,
         seed=args.seed,
+        distributed=distributed,
     )
 
 
@@ -263,116 +304,131 @@ def main():
     expected_monitor_mode = MONITOR_MODE_BY_METRIC[args.monitor_metric]
     if args.monitor_mode != expected_monitor_mode:
         args.monitor_mode = expected_monitor_mode
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    seed_everything(args.seed)
+    device = init_distributed(args)
+    seed_everything(args.seed + getattr(args, "rank", 0))
 
     train_transform = get_cls_transform(split="train", image_size=args.image_size)
     eval_transform = get_cls_transform(split="val", image_size=args.image_size)
 
-    if args.mode == "train":
-        resume_state = prepare_train_run(args)
-        unified_score_values = sorted(
-            set(collect_score_values(args.data_path, "train", args.score_type)) |
-            set(collect_score_values(args.data_path, "val", args.score_type))
-        )
+    try:
+        if args.mode == "train":
+            resume_state = prepare_train_run(args) if is_main_process(args) else None
+            if getattr(args, "is_ddp", False):
+                payload = [resume_state]
+                dist.broadcast_object_list(payload, src=0)
+                resume_state = payload[0]
+                dist.barrier()
+            unified_score_values = sorted(
+                set(collect_score_values(args.data_path, "train", args.score_type)) |
+                set(collect_score_values(args.data_path, "val", args.score_type))
+            )
 
-        train_dataset = BEScoreDataset(
+            train_dataset = BEScoreDataset(
+                data_root=args.data_path,
+                split="train",
+                score_type=args.score_type,
+                image_size=args.image_size,
+                transform=train_transform,
+                to_rgb=args.to_rgb,
+                score_values=unified_score_values,
+            )
+            val_dataset = BEScoreDataset(
+                data_root=args.data_path,
+                split="val",
+                score_type=args.score_type,
+                image_size=args.image_size,
+                transform=eval_transform,
+                to_rgb=args.to_rgb,
+                score_values=unified_score_values,
+            )
+
+            num_classes = len(train_dataset.score_values)
+            in_chans = 3 if args.to_rgb else 1
+            net = build_model(args.model, in_chans, num_classes, image_size=args.image_size).to(device)
+            if is_main_process(args):
+                n_params = sum(p.numel() for p in net.parameters())
+                print(f"Total parameters: {n_params / 1e6:.2f} M ({n_params:,} parameters)")
+            if resume_state is not None:
+                net.load_state_dict(resume_state["model"])
+            if getattr(args, "is_ddp", False):
+                net = DDP(net, device_ids=[args.local_rank], output_device=args.local_rank)
+
+            train_loader = build_loader(
+                train_dataset,
+                batch_size=args.train_batch_size,
+                shuffle=not args.oversample,
+                args=args,
+                oversample=args.oversample,
+                distributed=getattr(args, "is_ddp", False),
+            )
+            val_loader = build_loader(
+                val_dataset,
+                batch_size=args.val_batch_size,
+                shuffle=False,
+                args=args,
+                oversample=False,
+                distributed=False,
+            )
+
+            optimizer = optim.AdamW(net.parameters(), lr=args.lr, weight_decay=1e-3)
+            criterion = build_criterion(args, train_dataset, device)
+            trainer = ScoreClsTrainer(
+                args,
+                net,
+                train_loader,
+                val_loader,
+                criterion,
+                optimizer,
+                num_classes=num_classes,
+                score_values=train_dataset.score_values,
+                device=device,
+            )
+            if resume_state is not None:
+                trainer.load_training_state(resume_state)
+            trainer.fit(args)
+            return
+
+        checkpoint_dir = Path(args.checkpoint)
+        if checkpoint_dir.is_file():
+            checkpoint_dir = checkpoint_dir.parent
+        args.checkpoint = str(checkpoint_dir)
+        checkpoint_state = torch.load(checkpoint_dir / "model_best.pth", map_location="cpu")
+        checkpoint_score_values = checkpoint_state.get("score_values")
+
+        test_dataset = BEScoreDataset(
             data_root=args.data_path,
-            split="train",
-            score_type=args.score_type,
-            image_size=args.image_size,
-            transform=train_transform,
-            to_rgb=args.to_rgb,
-            score_values=unified_score_values,
-        )
-        val_dataset = BEScoreDataset(
-            data_root=args.data_path,
-            split="val",
+            split="test",
             score_type=args.score_type,
             image_size=args.image_size,
             transform=eval_transform,
             to_rgb=args.to_rgb,
-            score_values=unified_score_values,
+            score_values=checkpoint_score_values,
         )
-
-        num_classes = len(train_dataset.score_values)
+        num_classes = len(test_dataset.score_values)
         in_chans = 3 if args.to_rgb else 1
         net = build_model(args.model, in_chans, num_classes, image_size=args.image_size).to(device)
-        n_params = sum(p.numel() for p in net.parameters())
-        print(f"Total parameters: {n_params / 1e6:.2f} M ({n_params:,} parameters)")
-        if resume_state is not None:
-            net.load_state_dict(resume_state["model"])
-
-        train_loader = build_loader(
-            train_dataset,
-            batch_size=args.train_batch_size,
-            shuffle=not args.oversample,
-            args=args,
-            oversample=args.oversample,
-        )
-        val_loader = build_loader(
-            val_dataset,
+        if is_main_process(args):
+            n_params = sum(p.numel() for p in net.parameters())
+            print(f"Total parameters: {n_params / 1e6:.2f} M ({n_params:,} parameters)")
+        test_loader = build_loader(
+            test_dataset,
             batch_size=args.val_batch_size,
             shuffle=False,
             args=args,
             oversample=False,
+            distributed=False,
         )
-
-        optimizer = optim.AdamW(net.parameters(), lr=args.lr, weight_decay=1e-3)
-        criterion = build_criterion(args, train_dataset, device)
-        trainer = ScoreClsTrainer(
+        tester = ScoreClsTester(
             args,
             net,
-            train_loader,
-            val_loader,
-            criterion,
-            optimizer,
+            test_loader,
             num_classes=num_classes,
-            score_values=train_dataset.score_values,
+            score_values=test_dataset.score_values,
             device=device,
         )
-        if resume_state is not None:
-            trainer.load_training_state(resume_state)
-        trainer.fit(args)
-        return
-
-    checkpoint_dir = Path(args.checkpoint)
-    if checkpoint_dir.is_file():
-        checkpoint_dir = checkpoint_dir.parent
-    args.checkpoint = str(checkpoint_dir)
-    checkpoint_state = torch.load(checkpoint_dir / "model_best.pth", map_location="cpu")
-    checkpoint_score_values = checkpoint_state.get("score_values")
-
-    test_dataset = BEScoreDataset(
-        data_root=args.data_path,
-        split="test",
-        score_type=args.score_type,
-        image_size=args.image_size,
-        transform=eval_transform,
-        to_rgb=args.to_rgb,
-        score_values=checkpoint_score_values,
-    )
-    num_classes = len(test_dataset.score_values)
-    in_chans = 3 if args.to_rgb else 1
-    net = build_model(args.model, in_chans, num_classes, image_size=args.image_size).to(device)
-    n_params = sum(p.numel() for p in net.parameters())
-    print(f"Total parameters: {n_params / 1e6:.2f} M ({n_params:,} parameters)")
-    test_loader = build_loader(
-        test_dataset,
-        batch_size=args.val_batch_size,
-        shuffle=False,
-        args=args,
-        oversample=False,
-    )
-    tester = ScoreClsTester(
-        args,
-        net,
-        test_loader,
-        num_classes=num_classes,
-        score_values=test_dataset.score_values,
-        device=device,
-    )
-    tester.test()
+        tester.test()
+    finally:
+        cleanup_distributed(args)
 
 
 if __name__ == "__main__":

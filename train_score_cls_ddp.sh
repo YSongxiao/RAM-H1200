@@ -9,14 +9,35 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "${SCRIPT_DIR}"
 
+count_visible_gpus() {
+    if [[ -n "${CUDA_VISIBLE_DEVICES:-}" ]]; then
+        local devices="${CUDA_VISIBLE_DEVICES// /}"
+        IFS=',' read -r -a gpu_ids <<< "${devices}"
+        echo "${#gpu_ids[@]}"
+        return
+    fi
+
+    if command -v nvidia-smi >/dev/null 2>&1; then
+        nvidia-smi --list-gpus | wc -l
+        return
+    fi
+
+    echo 1
+}
+
 PYTHON_BIN="${PYTHON_BIN:-python}"
-GPU_ID="${GPU_ID:-0}"
-export CUDA_VISIBLE_DEVICES="${GPU_ID}"
+TORCHRUN_BIN="${TORCHRUN_BIN:-torchrun}"
+GPU_IDS="${GPU_IDS:-0,1,2,3}"
+export CUDA_VISIBLE_DEVICES="${GPU_IDS// /}"
+
+NUM_GPUS="${NUM_GPUS:-$(count_visible_gpus)}"
+MASTER_PORT="${MASTER_PORT:-29500}"
+STOP_ON_ERROR="${STOP_ON_ERROR:-1}"
 
 MODE="${MODE:-train}"
 SCORE_TYPE="${SCORE_TYPE:-BE}"
 MODEL="${MODEL:-ResNet34}"
-TRIAL_NAME="${TRIAL_NAME:-Benchmark_BEScoring}"
+TRIAL_NAME="${TRIAL_NAME:-Benchmark_BEScoring_DDP}"
 CHECKPOINT="${CHECKPOINT:-./ckpts}"
 DATA_PATH="${DATA_PATH:-/home/yafei/data/RAM-H1200/SvdH_Scoring/SvdH_JSN_Scoring/}"
 
@@ -27,7 +48,7 @@ MAX_EPOCH="${MAX_EPOCH:-200}"
 LR="${LR:-1e-4}"
 SCHEDULER="${SCHEDULER:-CosineAnnealing}"
 SEED="${SEED:-2026}"
-NUM_WORKERS="${NUM_WORKERS:-4}"
+NUM_WORKERS="${NUM_WORKERS:-2}"
 MONITOR_METRIC="${MONITOR_METRIC:-qwk}"
 EARLYSTOP_PATIENCE="${EARLYSTOP_PATIENCE:-20}"
 OVERSAMPLE_POWER="${OVERSAMPLE_POWER:-1.0}"
@@ -39,35 +60,24 @@ USE_CLASS_WEIGHT="${USE_CLASS_WEIGHT:-0}"
 EARLYSTOP="${EARLYSTOP:-0}"
 PIN_MEMORY="${PIN_MEMORY:-1}"
 
-# 单卡顺序实验。格式：
+# 多卡顺序实验。格式：
 #   "最终TrialName::额外参数"
 # 例如：
 # EXPERIMENTS=(
-#   "Baseline_BEScore::--model ResNet34 --score_type BE"
-#   "MedMamba_BEScore::--model MedMamba --score_type BE --amp"
+#   "ResNet34_JSN_DDP::--model ResNet34 --score_type JSN"
+#   "ConvNeXtV2_JSN_DDP::--model ConvNeXtV2 --score_type JSN --amp"
 # )
 # 留空时按上面的默认变量只跑一个实验。
 EXPERIMENTS=(
-    # "Baseline_BEScore::--model ConvNeXtV2 --score_type BE"
-    # "Baseline_BEScore::--model EfficientNetV2 --score_type BE"
-    # "Baseline_BEScore::--model MambaVisionT --score_type BE"
-    # "Baseline_BEScore::--model ResNet34 --score_type BE"
-    # "Baseline_BEScore::--model DenseNet --score_type BE"
-    # "Baseline_BEScore::--model MedMamba --score_type BE"
-    # "Baseline_BEScore::--model MambaVisionT --score_type BE"
-    # "Baseline_BEScore::--model EfficientFormer --score_type BE"
-    # "Baseline_BEScore::--model LeViT --score_type BE"
-    # "Baseline_BEScore::--model MobileViT --score_type BE"
-
-    "Baseline_JSNScore::--model ResNet34 --score_type JSN"
-    "Baseline_JSNScore::--model DenseNet --score_type JSN"
-    "Baseline_JSNScore::--model MedMamba --score_type JSN"
-    "Baseline_JSNScore::--model EfficientFormer --score_type JSN"
-    "Baseline_JSNScore::--model LeViT --score_type JSN"
-    "Baseline_JSNScore::--model MobileViT --score_type JSN"
-    "Baseline_JSNScore::--model ConvNeXtV2 --score_type JSN"
-    "Baseline_JSNScore::--model EfficientNetV2 --score_type JSN"
-    "Baseline_JSNScore::--model MambaVisionT --score_type JSN"
+    "ResNet34_JSN_DDP::--model ResNet34 --score_type JSN"
+    "DenseNet_JSN_DDP::--model DenseNet --score_type JSN"
+    "MedMamba_JSN_DDP::--model MedMamba --score_type JSN"
+    "EfficientFormer_JSN_DDP::--model EfficientFormer --score_type JSN"
+    "LeViT_JSN_DDP::--model LeViT --score_type JSN"
+    "MobileViT_JSN_DDP::--model MobileViT --score_type JSN"
+    "ConvNeXtV2_JSN_DDP::--model ConvNeXtV2 --score_type JSN"
+    "EfficientNetV2_JSN_DDP::--model EfficientNetV2 --score_type JSN"
+    "MambaVisionT_JSN_DDP::--model MambaVisionT --score_type JSN"
 )
 
 run_experiment() {
@@ -80,8 +90,11 @@ run_experiment() {
     fi
 
     local cmd=(
-        "${PYTHON_BIN}"
+        "${TORCHRUN_BIN}"
+        --nproc_per_node="${NUM_GPUS}"
+        --master_port="${MASTER_PORT}"
         main_score_cls.py
+        --launcher ddp
         --mode "${MODE}"
         --score_type "${SCORE_TYPE}"
         --model "${MODEL}"
@@ -134,8 +147,8 @@ run_experiment() {
     cmd+=("$@")
 
     echo "=================================================="
-    echo "Launching single-GPU cls experiment: ${exp_trial_name}"
-    echo "GPU_ID=${GPU_ID}"
+    echo "Launching multi-GPU cls experiment: ${exp_trial_name}"
+    echo "GPU(s): ${NUM_GPUS} | GPU_IDS=${CUDA_VISIBLE_DEVICES:-all} | MASTER_PORT=${MASTER_PORT}"
     echo "MODEL=${MODEL} | SCORE_TYPE=${SCORE_TYPE}"
     echo "DATA_PATH=${DATA_PATH}"
     echo "CHECKPOINT=${CHECKPOINT}"
@@ -146,8 +159,10 @@ run_experiment() {
 }
 
 if [[ "${#EXPERIMENTS[@]}" -eq 0 ]]; then
-    echo "Launching single classification experiment"
-    echo "GPU_ID=${GPU_ID}"
+    echo "Launching single multi-GPU classification experiment"
+    echo "GPU_IDS=${CUDA_VISIBLE_DEVICES:-all}"
+    echo "NUM_GPUS=${NUM_GPUS}"
+    echo "MASTER_PORT=${MASTER_PORT}"
     echo "MODEL=${MODEL}"
     echo "SCORE_TYPE=${SCORE_TYPE}"
     echo "DATA_PATH=${DATA_PATH}"
@@ -157,8 +172,9 @@ if [[ "${#EXPERIMENTS[@]}" -eq 0 ]]; then
     exit 0
 fi
 
-echo "Launching ${#EXPERIMENTS[@]} classification experiments sequentially"
-echo "GPU_ID=${GPU_ID}"
+echo "Launching ${#EXPERIMENTS[@]} classification experiments sequentially with ${NUM_GPUS} GPU(s)"
+echo "GPU_IDS=${CUDA_VISIBLE_DEVICES:-all}"
+echo "MASTER_PORT=${MASTER_PORT}"
 echo "Fallback TRIAL_NAME=${TRIAL_NAME}"
 echo "SCORE_TYPE=${SCORE_TYPE}"
 echo "DATA_PATH=${DATA_PATH}"
@@ -189,8 +205,16 @@ for idx in "${!EXPERIMENTS[@]}"; do
     else
         echo "[${exp_idx}/${#EXPERIMENTS[@]}] Failed ${exp_name}"
         failed_experiments+=("${exp_name}")
-        exit 1
+        if [[ "${STOP_ON_ERROR}" == "1" ]]; then
+            echo "STOP_ON_ERROR=1, stopping batch run."
+            exit 1
+        fi
     fi
 done
+
+if [[ "${#failed_experiments[@]}" -gt 0 ]]; then
+    echo "Batch run finished with failures: ${failed_experiments[*]}"
+    exit 1
+fi
 
 echo "All classification experiments finished successfully."

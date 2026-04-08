@@ -1937,6 +1937,10 @@ class ScoreClsTrainer:
         self.monitor_mode = getattr(args, "monitor_mode", "max")
         self.monitor_metric = getattr(args, "monitor_metric", "qwk")
         self.scaler = GradScaler() if self.amp else None
+        self.is_ddp = dist.is_available() and dist.is_initialized()
+        self.rank = dist.get_rank() if self.is_ddp else 0
+        self.world_size = dist.get_world_size() if self.is_ddp else 1
+        self.is_main_process = self.rank == 0
         self.earlystop = EarlyStopping(
             patience=args.earlystop_patience,
             mode=self.monitor_mode,
@@ -1963,6 +1967,31 @@ class ScoreClsTrainer:
         self.train_loss_history = []
         self.val_metric_history = []
 
+    def _unwrap_model(self):
+        return self.net.module if hasattr(self.net, "module") else self.net
+
+    def _move_optimizer_state_to_device(self):
+        target_device = torch.device(self.device)
+        for state in self.optimizer.state.values():
+            for key, value in state.items():
+                if torch.is_tensor(value):
+                    state[key] = value.to(target_device, non_blocking=True)
+
+    def _reduce_scalar(self, value: float, average: bool = True) -> float:
+        if not self.is_ddp:
+            return float(value)
+
+        tensor = torch.tensor(float(value), device=self.device)
+        dist.all_reduce(tensor, op=dist.ReduceOp.SUM)
+        if average:
+            tensor /= self.world_size
+        return float(tensor.item())
+
+    def _set_sampler_epoch(self, loader, epoch: int):
+        sampler = getattr(loader, "sampler", None)
+        if sampler is not None and hasattr(sampler, "set_epoch"):
+            sampler.set_epoch(epoch)
+
     def _forward_logits(self, img):
         pred = self.net(img)
         if not isinstance(pred, torch.Tensor):
@@ -1988,6 +2017,7 @@ class ScoreClsTrainer:
         optimizer_state = state.get("optimizer")
         if optimizer_state is not None:
             self.optimizer.load_state_dict(optimizer_state)
+            self._move_optimizer_state_to_device()
 
         scheduler_state = state.get("scheduler")
         if self.scheduler is not None and scheduler_state is not None:
@@ -2006,6 +2036,7 @@ class ScoreClsTrainer:
         val_metric = list(self.val_metric_history)
 
         for epoch in range(self.start_epoch, self.max_epoch):
+            self._set_sampler_epoch(self.train_loader, epoch)
             if next(self.net.parameters()).device != self.device:
                 self.net = self.net.to(self.device)
 
@@ -2017,9 +2048,18 @@ class ScoreClsTrainer:
             self.train_loss_history = train_loss
             self.val_metric_history = val_metric
 
-            self.plot(args, train_loss, val_metric)
+            if self.is_main_process:
+                self.plot(args, train_loss, val_metric)
 
-            should_stop = self.earlystop(epoch_val_metric) if getattr(args, "earlystop", False) else False
+            should_stop = (
+                self.earlystop(epoch_val_metric)
+                if self.is_main_process and getattr(args, "earlystop", False)
+                else False
+            )
+            if self.is_ddp:
+                stop_tensor = torch.tensor(int(should_stop), device=self.device)
+                dist.broadcast(stop_tensor, src=0)
+                should_stop = bool(stop_tensor.item())
             if self.scheduler is not None and not should_stop:
                 if args.scheduler == "Plateau":
                     self.scheduler.step(epoch_val_metric)
@@ -2032,19 +2072,21 @@ class ScoreClsTrainer:
                 else epoch_val_metric < self.best_metric
             )
             if is_better:
-                print(
-                    f"New best {self.monitor_metric}: "
-                    f"{self.best_metric:.4f} -> {epoch_val_metric:.4f}"
-                )
+                if self.is_main_process:
+                    print(
+                        f"New best {self.monitor_metric}: "
+                        f"{self.best_metric:.4f} -> {epoch_val_metric:.4f}"
+                    )
                 self.best_metric = epoch_val_metric
             else:
-                print(
-                    f"No {self.monitor_metric} improvement: "
-                    f"{epoch_val_metric:.4f} (best {self.best_metric:.4f})"
-                )
+                if self.is_main_process:
+                    print(
+                        f"No {self.monitor_metric} improvement: "
+                        f"{epoch_val_metric:.4f} (best {self.best_metric:.4f})"
+                    )
 
             ckpt = {
-                "model": self.net.state_dict(),
+                "model": self._unwrap_model().state_dict(),
                 "epoch": epoch,
                 "optimizer": self.optimizer.state_dict(),
                 "scheduler": self.scheduler.state_dict() if self.scheduler is not None else None,
@@ -2058,17 +2100,19 @@ class ScoreClsTrainer:
                 "num_classes": self.num_classes,
                 "score_values": self.score_values,
             }
-            torch.save(ckpt, Path(args.model_save_path) / "model_latest.pth")
-            if is_better:
-                torch.save(ckpt, Path(args.model_save_path) / "model_best.pth")
+            if self.is_main_process:
+                torch.save(ckpt, Path(args.model_save_path) / "model_latest.pth")
+                if is_better:
+                    torch.save(ckpt, Path(args.model_save_path) / "model_best.pth")
 
             if should_stop:
-                print(f"Early stopping triggered on {self.monitor_metric}.")
+                if self.is_main_process:
+                    print(f"Early stopping triggered on {self.monitor_metric}.")
                 break
 
     def train_one_epoch_amp(self, epoch):
         self.net.train()
-        pbar = tqdm(self.train_loader)
+        pbar = tqdm(self.train_loader, disable=not self.is_main_process)
         avg_loss = 0.0
         for batch in pbar:
             img, gt = self._move_batch_to_device(batch)
@@ -2084,15 +2128,17 @@ class ScoreClsTrainer:
             self.scaler.update()
 
             avg_loss += loss.item()
-            pbar.set_description(
-                f"Epoch {epoch} training at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}, "
-                f"loss: {loss.item():.4f}, lr:{self.optimizer.param_groups[0]['lr']}"
-            )
-        return avg_loss / max(len(self.train_loader), 1)
+            if self.is_main_process:
+                pbar.set_description(
+                    f"Epoch {epoch} training at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}, "
+                    f"loss: {loss.item():.4f}, lr:{self.optimizer.param_groups[0]['lr']}"
+                )
+        avg_loss /= max(len(self.train_loader), 1)
+        return self._reduce_scalar(avg_loss, average=True)
 
     def train_one_epoch(self, epoch):
         self.net.train()
-        pbar = tqdm(self.train_loader)
+        pbar = tqdm(self.train_loader, disable=not self.is_main_process)
         avg_loss = 0.0
         for batch in pbar:
             img, gt = self._move_batch_to_device(batch)
@@ -2106,15 +2152,22 @@ class ScoreClsTrainer:
             self.optimizer.step()
 
             avg_loss += loss.item()
-            pbar.set_description(
-                f"Epoch {epoch} training at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}, "
-                f"loss: {loss.item():.4f}, lr:{self.optimizer.param_groups[0]['lr']}"
-            )
-        return avg_loss / max(len(self.train_loader), 1)
+            if self.is_main_process:
+                pbar.set_description(
+                    f"Epoch {epoch} training at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}, "
+                    f"loss: {loss.item():.4f}, lr:{self.optimizer.param_groups[0]['lr']}"
+                )
+        avg_loss /= max(len(self.train_loader), 1)
+        return self._reduce_scalar(avg_loss, average=True)
 
     def validate(self, epoch):
         self.net.eval()
-        pbar = tqdm(self.val_loader)
+        if self.is_ddp and not self.is_main_process:
+            metric_tensor = torch.zeros(1, device=self.device)
+            dist.broadcast(metric_tensor, src=0)
+            return float(metric_tensor[0].item())
+
+        pbar = tqdm(self.val_loader, disable=not self.is_main_process)
         metrics = ClassificationMetrics(num_classes=self.num_classes, score_values=self.score_values)
         avg_loss = 0.0
 
@@ -2132,10 +2185,11 @@ class ScoreClsTrainer:
                     batch["joint_name"],
                     pred_is_label=True,
                 )
-                pbar.set_description(
-                    f"Epoch {epoch} validating at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}, "
-                    f"loss: {loss.item():.4f}, lr:{self.optimizer.param_groups[0]['lr']}"
-                )
+                if self.is_main_process:
+                    pbar.set_description(
+                        f"Epoch {epoch} validating at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}, "
+                        f"loss: {loss.item():.4f}, lr:{self.optimizer.param_groups[0]['lr']}"
+                    )
 
         metric_dict = metrics.get_metrics()
         metric_map = {
@@ -2146,13 +2200,18 @@ class ScoreClsTrainer:
         }
         metric_value = metric_map[self.monitor_metric]
         mean_loss = avg_loss / max(len(self.val_loader), 1)
-        print(
-            f"Validation loss: {mean_loss:.4f}, "
-            f"accuracy: {metric_dict['overall_accuracy']:.4f}, "
-            f"macro_f1: {metric_dict['overall_f1']:.4f}, "
-            f"qwk: {metric_dict['overall_qwk']:.4f}, "
-            f"mae: {metric_dict['overall_mae']:.4f}"
-        )
+        if self.is_main_process:
+            print(
+                f"Validation loss: {mean_loss:.4f}, "
+                f"accuracy: {metric_dict['overall_accuracy']:.4f}, "
+                f"macro_f1: {metric_dict['overall_f1']:.4f}, "
+                f"qwk: {metric_dict['overall_qwk']:.4f}, "
+                f"mae: {metric_dict['overall_mae']:.4f}"
+            )
+        if self.is_ddp:
+            metric_tensor = torch.tensor([metric_value], device=self.device, dtype=torch.float32)
+            dist.broadcast(metric_tensor, src=0)
+            metric_value = float(metric_tensor[0].item())
         return metric_value
 
     def plot(self, args, train_loss, val_metric):
