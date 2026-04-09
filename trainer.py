@@ -2323,6 +2323,8 @@ class ScoreClsTester:
         print(f"MAE: {metric_dict['overall_mae']:.4f}")
         print(f"Within-1: {metric_dict['overall_within_1']:.4f}")
         print(f"Pos/Neg ACC: {metric_dict['overall_pos_neg_acc']:.4f}")
+        print(f"Binary Sensitivity: {metric_dict['overall_binary_sensitivity']:.4f}")
+        print(f"Binary Specificity: {metric_dict['overall_binary_specificity']:.4f}")
 
         _print_case_inference_time_summary(case_inference_times)
         _save_case_inference_time_summary(self.args.checkpoint, case_inference_times)
@@ -2368,6 +2370,8 @@ class ScoreClsTester:
                 "MAE": metrics_dict["overall_mae"],
                 "Within1": metrics_dict["overall_within_1"],
                 "Pos/Neg ACC": metrics_dict["overall_pos_neg_acc"],
+                "Binary Sensitivity": metrics_dict["overall_binary_sensitivity"],
+                "Binary Specificity": metrics_dict["overall_binary_specificity"],
             }
         ]
         for joint, joint_metric in metrics_dict["joint_metrics"].items():
@@ -2386,6 +2390,8 @@ class ScoreClsTester:
                     "MAE": joint_metric["mae"],
                     "Within1": joint_metric["within_1"],
                     "Pos/Neg ACC": joint_metric["pos_neg_acc"],
+                    "Binary Sensitivity": joint_metric["binary_sensitivity"],
+                    "Binary Specificity": joint_metric["binary_specificity"],
                 }
             )
         pd.DataFrame(summary_rows).to_csv(save_path / "test_metrics.csv", index=False)

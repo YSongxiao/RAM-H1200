@@ -20,6 +20,7 @@ from models.swin_unet.swintrans import SwinUnet
 from models.swin_unet.swin_unet import get_SwinUnet_Custom
 from models.Seg_UKAN.archs import UKAN
 from models.MambaVisionSeg import get_MambaVisionSeg
+from models.MambaVisionSegV2 import get_MambaVisionSegV2
 from models.TransUNet.transUnet import get_TransUnet_Custom
 from models.UMamba import get_UMambaBot, get_UMambaEnc
 from models.SwinUMamba import get_SwinUMamba, get_DPMSwinUMamba, get_RefinedSwinUMamba
@@ -72,7 +73,8 @@ def get_args():
         default="SwinUMamba",
         choices=["Unet", "SwinUnet", "SegResNet", "Unet++", "TransUnet", "UKAN", "DeepLabV3", "DeepLabV3+", "PSPNet",
                  "PAN", "DPT", "SegFormer", "FPN", "UMambaBot", "UMambaEnc", "SwinUMamba", "DPMSwinUMamba", "RefinedSwinUMamba",
-                 "ACC_UNet", "SwinUNETR", "MambaVisionT", "MambaVisionT2", "MambaVisionS"],
+                 "ACC_UNet", "SwinUNETR", "MambaVisionT", "MambaVisionT2", "MambaVisionS",
+                 "MambaVisionT_v2", "MambaVisionT2_v2", "MambaVisionS_v2"],
         help='The name of the model.',
     )
 
@@ -515,6 +517,19 @@ def build_model(args, in_chans):
             "MambaVisionS": "mamba_vision_S",
         }
         return get_MambaVisionSeg(
+            variant=variant_map[args.model],
+            in_chans=in_chans,
+            num_classes=30,
+            image_size=args.image_size,
+            pretrained=False,
+        )
+    elif args.model in {"MambaVisionT_v2", "MambaVisionT2_v2", "MambaVisionS_v2"}:
+        variant_map = {
+            "MambaVisionT_v2": "mamba_vision_T",
+            "MambaVisionT2_v2": "mamba_vision_T2",
+            "MambaVisionS_v2": "mamba_vision_S",
+        }
+        return get_MambaVisionSegV2(
             variant=variant_map[args.model],
             in_chans=in_chans,
             num_classes=30,

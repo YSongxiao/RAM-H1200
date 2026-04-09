@@ -18,6 +18,7 @@ from evaluations.loss import CreditAwareDiceCELoss
 from models.ACC_UNet.ACC_UNet import ACC_UNet
 from models.Seg_UKAN.archs import UKAN
 from models.MambaVisionSeg import get_MambaVisionSeg
+from models.MambaVisionSegV2 import get_MambaVisionSegV2
 from models.SwinUMamba import get_DPMSwinUMamba, get_RefinedSwinUMamba, get_SwinUMamba
 from models.TransUNet.transUnet import get_TransUnet_Custom
 from models.UMamba import get_UMambaBot, get_UMambaEnc
@@ -46,12 +47,13 @@ def get_args():
     parser.add_argument(
         "--model",
         type=str,
-        default="UMambaEnc",
+        default="MambaVisionT_v2",
         choices=[
             "Unet", "SegResNet", "Unet++", "TransUnet", "UKAN", "DeepLabV3", "DeepLabV3+",
             "PSPNet", "PAN", "DPT", "SegFormer", "FPN", "UMambaBot", "UMambaEnc",
             "SwinUMamba", "DPMSwinUMamba", "RefinedSwinUMamba", "ACC_UNet", "SwinUNETR",
             "MambaVisionT", "MambaVisionT2", "MambaVisionS",
+            "MambaVisionT_v2", "MambaVisionT2_v2", "MambaVisionS_v2",
         ],
         help="The name of the model.",
     )
@@ -65,7 +67,7 @@ def get_args():
     parser.add_argument(
         "--loss",
         type=str,
-        default="creditaware",
+        default="dicece",
         choices=["dicece", "creditaware"],
         help="Training loss type.",
     )
@@ -141,7 +143,7 @@ def get_args():
     )
     parser.add_argument("--launcher", type=str, default="none", choices=["none", "ddp"], help="Launch mode.")
     parser.add_argument("--local_rank", type=int, default=-1, help="Local rank for DDP.")
-    parser.add_argument("--num_workers", type=int, default=0, help="DataLoader workers per process. Use -1 to auto-select.")
+    parser.add_argument("--num_workers", type=int, default=2, help="DataLoader workers per process. Use -1 to auto-select.")
     parser.add_argument("--prefetch_factor", type=int, default=2, help="Prefetched batches per worker.")
     parser.add_argument("--pin_memory", dest="pin_memory", action="store_true", help="Enable pinned host memory.")
     parser.add_argument("--no-pin_memory", dest="pin_memory", action="store_false", help="Disable pinned host memory.")
@@ -377,6 +379,19 @@ def build_model(args, in_chans):
             "MambaVisionS": "mamba_vision_S",
         }
         return get_MambaVisionSeg(
+            variant=variant_map[args.model],
+            in_chans=in_chans,
+            num_classes=out_chans,
+            image_size=args.image_size,
+            pretrained=False,
+        )
+    elif args.model in {"MambaVisionT_v2", "MambaVisionT2_v2", "MambaVisionS_v2"}:
+        variant_map = {
+            "MambaVisionT_v2": "mamba_vision_T",
+            "MambaVisionT2_v2": "mamba_vision_T2",
+            "MambaVisionS_v2": "mamba_vision_S",
+        }
+        return get_MambaVisionSegV2(
             variant=variant_map[args.model],
             in_chans=in_chans,
             num_classes=out_chans,

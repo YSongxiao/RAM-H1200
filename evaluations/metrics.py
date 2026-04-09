@@ -1183,6 +1183,12 @@ class ClassificationMetrics:
         overall_within_1 = float(np.mean(np.abs(raw_preds - raw_gts) <= 1))
         overall_qwk = float(cohen_kappa_score(raw_gts, raw_preds, weights="quadratic"))
         overall_pos_neg_acc = float(np.mean(pos_neg_preds == pos_neg_gts))
+        overall_pos_tp = float(np.sum((pos_neg_preds == 1) & (pos_neg_gts == 1)))
+        overall_pos_tn = float(np.sum((pos_neg_preds == 0) & (pos_neg_gts == 0)))
+        overall_pos_fp = float(np.sum((pos_neg_preds == 1) & (pos_neg_gts == 0)))
+        overall_pos_fn = float(np.sum((pos_neg_preds == 0) & (pos_neg_gts == 1)))
+        overall_binary_sensitivity = overall_pos_tp / (overall_pos_tp + overall_pos_fn + 1e-8)
+        overall_binary_specificity = overall_pos_tn / (overall_pos_tn + overall_pos_fp + 1e-8)
 
         joint_preds = {}
         joint_gts = {}
@@ -1240,6 +1246,14 @@ class ClassificationMetrics:
                 "within_1": float(np.mean(np.abs(joint_raw_pred - joint_raw_gt) <= 1)),
                 "qwk": float(cohen_kappa_score(joint_raw_gt, joint_raw_pred, weights="quadratic")),
                 "pos_neg_acc": float(np.mean(joint_pos_neg_pred == joint_pos_neg_gt)),
+                "binary_sensitivity": float(
+                    np.sum((joint_pos_neg_pred == 1) & (joint_pos_neg_gt == 1))
+                    / (np.sum(joint_pos_neg_gt == 1) + 1e-8)
+                ),
+                "binary_specificity": float(
+                    np.sum((joint_pos_neg_pred == 0) & (joint_pos_neg_gt == 0))
+                    / (np.sum(joint_pos_neg_gt == 0) + 1e-8)
+                ),
                 "confusion_matrix": confusion_values,
             }
 
@@ -1256,6 +1270,8 @@ class ClassificationMetrics:
             "overall_within_1": overall_within_1,
             "overall_qwk": overall_qwk,
             "overall_pos_neg_acc": overall_pos_neg_acc,
+            "overall_binary_sensitivity": overall_binary_sensitivity,
+            "overall_binary_specificity": overall_binary_specificity,
             "overall_confusion_matrix": overall_cm.flatten().tolist(),
             "joint_metrics": joint_metrics,
             "fname": self.fnames,
