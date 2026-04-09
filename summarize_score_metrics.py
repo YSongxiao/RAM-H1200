@@ -5,26 +5,26 @@ from openpyxl import Workbook
 
 
 EXP_PATHS = [
-    # "/mnt/data1/songxiao/RAM-H1200/ckpts/Baseline_BEScore_be_convnextv2_20260406214233",
-    # "/mnt/data1/songxiao/RAM-H1200/ckpts/Baseline_BEScore_be_densenet_20260406043912",
-    # "/mnt/data1/songxiao/RAM-H1200/ckpts/Baseline_BEScore_be_efficientformer_20260406124424",
-    # "/mnt/data1/songxiao/RAM-H1200/ckpts/Baseline_BEScore_be_efficientnetv2_20260407010854",
-    # "/mnt/data1/songxiao/RAM-H1200/ckpts/Baseline_BEScore_be_levit_20260406151143",
-    # "/mnt/data1/songxiao/RAM-H1200/ckpts/Baseline_BEScore_be_mambavisiont_20260406192728",
-    # "/mnt/data1/songxiao/RAM-H1200/ckpts/Baseline_BEScore_be_medmamba_20260406065848",
-    # "/mnt/data1/songxiao/RAM-H1200/ckpts/Baseline_BEScore_be_mobilevit_20260406171657",
-    # "/mnt/data1/songxiao/RAM-H1200/ckpts/Baseline_BEScore_be_resnet34_20260406034451",
-    "/mnt/data1/songxiao/RAM-H1200/ckpts/Baseline_JSNScore_jsn_convnextv2_20260408235834",
-    "/mnt/data1/songxiao/RAM-H1200/ckpts/Baseline_JSNScore_jsn_densenet_20260408145311",
-    "/mnt/data1/songxiao/RAM-H1200/ckpts/Baseline_JSNScore_jsn_efficientformer_20260408193624",
-    "/mnt/data1/songxiao/RAM-H1200/ckpts/Baseline_JSNScore_jsn_efficientnetv2_20260409112019",
-    "/mnt/data1/songxiao/RAM-H1200/ckpts/Baseline_JSNScore_jsn_levit_20260408210652",
-    "/mnt/data1/songxiao/RAM-H1200/ckpts/Baseline_JSNScore_jsn_mambavisiont_20260409221059",
-    "/mnt/data1/songxiao/RAM-H1200/ckpts/Baseline_JSNScore_jsn_medmamba_20260408161409",
-    "/mnt/data1/songxiao/RAM-H1200/ckpts/Baseline_JSNScore_jsn_mobilevit_20260408222750",
-    "/mnt/data1/songxiao/RAM-H1200/ckpts/Baseline_JSNScore_jsn_resnet34_20260408140357",
+    "/mnt/data1/songxiao/RAM-H1200/ckpts/Baseline_BEScore_be_convnextv2_20260406214233",
+    "/mnt/data1/songxiao/RAM-H1200/ckpts/Baseline_BEScore_be_densenet_20260406043912",
+    "/mnt/data1/songxiao/RAM-H1200/ckpts/Baseline_BEScore_be_efficientformer_20260406124424",
+    "/mnt/data1/songxiao/RAM-H1200/ckpts/Baseline_BEScore_be_efficientnetv2_20260407010854",
+    "/mnt/data1/songxiao/RAM-H1200/ckpts/Baseline_BEScore_be_levit_20260406151143",
+    "/mnt/data1/songxiao/RAM-H1200/ckpts/Baseline_BEScore_be_mambavisiont_20260406192728",
+    "/mnt/data1/songxiao/RAM-H1200/ckpts/Baseline_BEScore_be_medmamba_20260406065848",
+    "/mnt/data1/songxiao/RAM-H1200/ckpts/Baseline_BEScore_be_mobilevit_20260406171657",
+    "/mnt/data1/songxiao/RAM-H1200/ckpts/Baseline_BEScore_be_resnet34_20260406034451",
+    # "/mnt/data1/songxiao/RAM-H1200/ckpts/Baseline_JSNScore_jsn_convnextv2_20260408235834",
+    # "/mnt/data1/songxiao/RAM-H1200/ckpts/Baseline_JSNScore_jsn_densenet_20260408145311",
+    # "/mnt/data1/songxiao/RAM-H1200/ckpts/Baseline_JSNScore_jsn_efficientformer_20260408193624",
+    # "/mnt/data1/songxiao/RAM-H1200/ckpts/Baseline_JSNScore_jsn_efficientnetv2_20260409112019",
+    # "/mnt/data1/songxiao/RAM-H1200/ckpts/Baseline_JSNScore_jsn_levit_20260408210652",
+    # "/mnt/data1/songxiao/RAM-H1200/ckpts/Baseline_JSNScore_jsn_mambavisiont_20260409221059",
+    # "/mnt/data1/songxiao/RAM-H1200/ckpts/Baseline_JSNScore_jsn_medmamba_20260408161409",
+    # "/mnt/data1/songxiao/RAM-H1200/ckpts/Baseline_JSNScore_jsn_mobilevit_20260408222750",
+    # "/mnt/data1/songxiao/RAM-H1200/ckpts/Baseline_JSNScore_jsn_resnet34_20260408140357",
 ]
-OUTPUT_PATH = "/mnt/data1/songxiao/RAM-H1200/ckpts/jsn_score_test_metrics_summary.xlsx"
+OUTPUT_PATH = "/mnt/data1/songxiao/RAM-H1200/ckpts/be_score_test_metrics_summary.xlsx"
 DECIMALS = 4
 
 
@@ -32,6 +32,9 @@ def infer_model_name(exp_dir: Path) -> str:
     name = exp_dir.name
     if name.startswith("Baseline_BEScore_be_"):
         suffix = name[len("Baseline_BEScore_be_"):]
+        return suffix.rsplit("_", 1)[0]
+    if name.startswith("Baseline_JSNScore_jsn_"):
+        suffix = name[len("Baseline_JSNScore_jsn_"):]
         return suffix.rsplit("_", 1)[0]
     return name
 
@@ -168,7 +171,16 @@ def print_console_summary(experiments, decimals: int):
         print(f"\n[{exp['experiment']}]")
         print(f"Model: {exp['model']}")
         compact = []
-        for metric_name in ("Accuracy", "F1score", "QWK", "MAE", "Within1", "Pos/Neg ACC"):
+        for metric_name in (
+            "Accuracy",
+            "F1score",
+            "QWK",
+            "MAE",
+            "Within1",
+            "Pos/Neg ACC",
+            "Binary Sensitivity",
+            "Binary Specificity",
+        ):
             if metric_name in exp["metric_columns"]:
                 value = to_number(overall.get(metric_name, ""))
                 if isinstance(value, float):
