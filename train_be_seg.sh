@@ -73,6 +73,7 @@ AMP="${AMP:-1}"
 # 留空时，脚本按上面的默认变量只跑一个实验。
 EXPERIMENTS=(
     "Baseline_BESeg_DiceCE::--model MambaVisionT --loss dicece --train_batch_size 16"
+    "Baseline_BESeg_DiceCE::--model SegFormer --loss dicece --train_batch_size 16"
     # "Baseline_BESeg_DiceCE::--model UMambaEnc --loss dicece --train_batch_size 16"
     # "Baseline_BESeg_DiceCE::--model SwinUMamba --loss dicece --train_batch_size 16"
     # "Baseline_BESeg_DiceCE::--model SwinUNETR --loss dicece --train_batch_size 16"

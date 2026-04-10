@@ -5,6 +5,7 @@ wandb/
 logs/
 tensorboard/
 events.out.tfevents*
+models/nnUNet/DATASET/
 
 # Checkpoints and model artifacts
 *.ckpt
