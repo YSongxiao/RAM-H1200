@@ -14,6 +14,7 @@ import torch.optim as optim
 from torch.nn.parallel import DistributedDataParallel as DDP
 
 from datasets.scorecls import BEScoreDataset, collect_score_values, get_be_score_dataloader
+from models.CoralOrdinal import CoralOrdinalModel
 from trainer import ScoreClsTester, ScoreClsTrainer
 from utils import get_cls_transform, seed_everything
 
@@ -73,6 +74,13 @@ def get_args():
     parser.add_argument("--oversample", action="store_true", default=False, help="Use weighted oversampling for train split.")
     parser.add_argument("--oversample_power", type=float, default=1.0, help="Oversampling weight exponent.")
     parser.add_argument(
+        "--ordinal_method",
+        type=str,
+        default="independent",
+        choices=["independent", "coral"],
+        help="Ordinal head type. 'independent' keeps the original K-1 logits; 'coral' uses shared severity with ordered cutpoints.",
+    )
+    parser.add_argument(
         "--use_class_weight",
         action="store_true",
         default=False,
@@ -90,7 +98,7 @@ def get_args():
     parser.add_argument("--checkpoint", type=str, default="./ckpts", help="Checkpoint root or experiment directory.")
     parser.add_argument("--resume", action="store_true", default=False, help="Resume from latest checkpoint.")
     parser.add_argument("--resume_from", type=str, default="", help="Explicit checkpoint file or experiment directory.")
-    parser.add_argument("--trial_name", type=str, default="Benchmark_JSNScoring", help="Trial name.")
+    parser.add_argument("--trial_name", type=str, default="Benchmark_BEScoring", help="Trial name.")
     parser.add_argument("--max_epoch", type=int, default=200, help="Max epochs.")
     parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate.")
     parser.add_argument("--earlystop", action="store_true", default=False, help="Enable early stopping.")
@@ -156,7 +164,10 @@ def resolve_checkpoint_artifact(path: Path) -> Tuple[Path, Path]:
 
 
 def get_model_tag(args) -> str:
-    return args.model.lower()
+    model_tag = args.model.lower()
+    if getattr(args, "ordinal_method", "independent") == "coral":
+        return f"{model_tag}_coral"
+    return model_tag
 
 
 def find_latest_resume_dir(checkpoint_root: Path, trial_name: str, model_tag: str, score_type: str) -> Optional[Path]:
@@ -207,8 +218,9 @@ def prepare_train_run(args):
     print(f"Starting new training run at {run_dir}")
     return None
 
-def build_model(model_name, in_chans, num_classes, image_size=224):
-    out_dims = max(num_classes - 1, 1)
+def build_model(model_name, in_chans, num_classes, image_size=224, ordinal_method="independent"):
+    num_thresholds = max(num_classes - 1, 1)
+    out_dims = 1 if ordinal_method == "coral" else num_thresholds
     if model_name in {"MambaVisionT", "MambaVisionT2", "MambaVisionS"}:
         try:
             from mambavision import create_model as create_mambavision_model
@@ -223,13 +235,14 @@ def build_model(model_name, in_chans, num_classes, image_size=224):
             "MambaVisionT2": "mamba_vision_T2",
             "MambaVisionS": "mamba_vision_S",
         }
-        return create_mambavision_model(
+        model = create_mambavision_model(
             mambavision_models[model_name],
             pretrained=False,
             in_chans=in_chans,
             num_classes=out_dims,
             resolution=image_size,
         )
+        return CoralOrdinalModel(model, num_thresholds) if ordinal_method == "coral" else model
 
     if model_name in {"ResNet18", "ResNet34", "ResNet50"}:
         import timm
@@ -239,22 +252,25 @@ def build_model(model_name, in_chans, num_classes, image_size=224):
             "ResNet34": "resnet34",
             "ResNet50": "resnet50",
         }
-        return timm.create_model(
+        model = timm.create_model(
             resnet_models[model_name],
             pretrained=False,
             in_chans=in_chans,
             num_classes=out_dims,
         )
+        return CoralOrdinalModel(model, num_thresholds) if ordinal_method == "coral" else model
     if model_name == "DenseNet":
-        return monai.networks.nets.DenseNet121(
+        model = monai.networks.nets.DenseNet121(
             spatial_dims=2,
             in_channels=in_chans,
             out_channels=out_dims,
         )
+        return CoralOrdinalModel(model, num_thresholds) if ordinal_method == "coral" else model
     if model_name == "MedMamba":
         from models.MedMamba import VSSM as MedMamba
 
-        return MedMamba(in_chans=in_chans, num_classes=out_dims)
+        model = MedMamba(in_chans=in_chans, num_classes=out_dims)
+        return CoralOrdinalModel(model, num_thresholds) if ordinal_method == "coral" else model
 
     timm_models = {
         "MobileNet": "mobilenetv2_050",
@@ -265,12 +281,13 @@ def build_model(model_name, in_chans, num_classes, image_size=224):
         "ConvNeXtV2": "convnextv2_tiny.fcmae_ft_in22k_in1k",
     }
     import timm
-    return timm.create_model(
+    model = timm.create_model(
         timm_models[model_name],
         pretrained=False,
         in_chans=in_chans,
         num_classes=out_dims,
     )
+    return CoralOrdinalModel(model, num_thresholds) if ordinal_method == "coral" else model
 
 
 def build_criterion(args, train_dataset, device):
@@ -324,6 +341,8 @@ def main():
                 dist.broadcast_object_list(payload, src=0)
                 resume_state = payload[0]
                 dist.barrier()
+            if resume_state is not None:
+                args.ordinal_method = resume_state.get("ordinal_method", args.ordinal_method)
             unified_score_values = sorted(
                 set(collect_score_values(args.data_path, "train", args.score_type)) |
                 set(collect_score_values(args.data_path, "val", args.score_type))
@@ -350,10 +369,17 @@ def main():
 
             num_classes = len(train_dataset.score_values)
             in_chans = 3 if args.to_rgb else 1
-            net = build_model(args.model, in_chans, num_classes, image_size=args.image_size).to(device)
+            net = build_model(
+                args.model,
+                in_chans,
+                num_classes,
+                image_size=args.image_size,
+                ordinal_method=args.ordinal_method,
+            ).to(device)
             if is_main_process(args):
                 n_params = sum(p.numel() for p in net.parameters())
                 print(f"Total parameters: {n_params / 1e6:.2f} M ({n_params:,} parameters)")
+                print(f"Ordinal method: {args.ordinal_method}")
             if resume_state is not None:
                 net.load_state_dict(resume_state["model"])
             if getattr(args, "is_ddp", False):
@@ -402,6 +428,7 @@ def main():
         args.checkpoint = str(checkpoint_dir)
         checkpoint_state = torch.load(checkpoint_dir / "model_best.pth", map_location="cpu")
         checkpoint_score_values = checkpoint_state.get("score_values")
+        args.ordinal_method = checkpoint_state.get("ordinal_method", args.ordinal_method)
 
         test_dataset = BEScoreDataset(
             data_root=args.data_path,
@@ -414,10 +441,17 @@ def main():
         )
         num_classes = len(test_dataset.score_values)
         in_chans = 3 if args.to_rgb else 1
-        net = build_model(args.model, in_chans, num_classes, image_size=args.image_size).to(device)
+        net = build_model(
+            args.model,
+            in_chans,
+            num_classes,
+            image_size=args.image_size,
+            ordinal_method=args.ordinal_method,
+        ).to(device)
         if is_main_process(args):
             n_params = sum(p.numel() for p in net.parameters())
             print(f"Total parameters: {n_params / 1e6:.2f} M ({n_params:,} parameters)")
+            print(f"Ordinal method: {args.ordinal_method}")
         test_loader = build_loader(
             test_dataset,
             batch_size=args.val_batch_size,

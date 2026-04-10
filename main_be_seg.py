@@ -15,13 +15,6 @@ from typing import Optional, Tuple, Union
 
 from datasets.beseg import BEPatchDataset, get_dataloader
 from evaluations.loss import CreditAwareDiceCELoss
-from models.ACC_UNet.ACC_UNet import ACC_UNet
-from models.Seg_UKAN.archs import UKAN
-from models.MambaVisionSeg import get_MambaVisionSeg
-from models.SwinUMamba import get_DPMSwinUMamba, get_RefinedSwinUMamba, get_SwinUMamba
-from models.TransUNet.transUnet import get_TransUnet_Custom
-from models.UMamba import get_UMambaBot, get_UMambaEnc
-from models.UnetPlusPlus import UnetPlusPlus
 from trainer import BEPatchSegInferencer, BEPatchSegTester, BESegTrainer
 from utils import get_transform, seed_everything
 
@@ -46,7 +39,7 @@ def get_args():
     parser.add_argument(
         "--model",
         type=str,
-        default="MambaVisionT",
+        default="SegFormer",
         choices=[
             "Unet", "SegResNet", "Unet++", "TransUnet", "UKAN", "DeepLabV3", "DeepLabV3+",
             "PSPNet", "PAN", "DPT", "SegFormer", "FPN", "UMambaBot", "UMambaEnc",
@@ -332,6 +325,8 @@ def build_model(args, in_chans):
             blocks_up=(1, 1, 1),
         )
     elif args.model == "Unet++":
+        from models.UnetPlusPlus import UnetPlusPlus
+
         model = UnetPlusPlus(spatial_dims=2, in_channels=in_chans, out_channels=out_chans, features=(32, 32, 64, 128, 256, 32))
         backbone = getattr(model, "model", None)
         if backbone is not None and not getattr(backbone, "deep_supervision", False):
@@ -343,8 +338,12 @@ def build_model(args, in_chans):
                     param.requires_grad = False
         return model
     elif args.model == "UKAN":
+        from models.Seg_UKAN.archs import UKAN
+
         return UKAN(num_classes=out_chans, input_channels=in_chans, embed_dims=[128, 160, 256])
     elif args.model == "TransUnet":
+        from models.TransUNet.transUnet import get_TransUnet_Custom
+
         return get_TransUnet_Custom(img_size=args.image_size, n_classes=out_chans)
     elif args.model == "DeepLabV3+":
         return smp.DeepLabV3Plus(in_channels=in_chans, encoder_weights=None, classes=out_chans)
@@ -361,16 +360,26 @@ def build_model(args, in_chans):
     elif args.model == "FPN":
         return smp.FPN(in_channels=in_chans, encoder_weights=None, classes=out_chans)
     elif args.model == "UMambaBot":
+        from models.UMamba import get_UMambaBot
+
         return get_UMambaBot(in_channels=in_chans, num_classes=out_chans)
     elif args.model == "UMambaEnc":
+        from models.UMamba import get_UMambaEnc
+
         return get_UMambaEnc(in_channels=in_chans, num_classes=out_chans)
     elif args.model == "SwinUMamba":
+        from models.SwinUMamba import get_SwinUMamba
+
         return get_SwinUMamba(in_channels=in_chans, num_classes=out_chans)
     elif args.model == "DPMSwinUMamba":
+        from models.SwinUMamba import get_DPMSwinUMamba
+
         return get_DPMSwinUMamba(in_channels=in_chans, num_overlap_classes=1, num_classes=out_chans)
     elif args.model == "RefinedSwinUMamba":
         raise NotImplementedError("RefinedSwinUMamba for BE segmentation requires an explicit base checkpoint.")
     elif args.model in {"MambaVisionT", "MambaVisionT2", "MambaVisionS"}:
+        from models.MambaVisionSeg import get_MambaVisionSeg
+
         variant_map = {
             "MambaVisionT": "mamba_vision_T",
             "MambaVisionT2": "mamba_vision_T2",
@@ -384,6 +393,8 @@ def build_model(args, in_chans):
             pretrained=False,
         )
     elif args.model == "ACC_UNet":
+        from models.ACC_UNet.ACC_UNet import ACC_UNet
+
         return ACC_UNet(n_channels=in_chans, n_classes=out_chans - 1)
     elif args.model == "SwinUNETR":
         swinunetr_kwargs = dict(

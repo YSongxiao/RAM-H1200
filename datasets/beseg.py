@@ -312,6 +312,39 @@ class BEPatchDataset(Dataset):
         one_hot = np.eye(lesion_mask_stack.shape[0] + 1, dtype=np.uint8)[label_map]
         return np.transpose(one_hot[..., 1:], (2, 0, 1))
 
+    def _sanitize_mask_hwc(self, mask) -> np.ndarray:
+        """
+        Rebuild a valid BE one-hot mask after spatial augmentation.
+        Albumentations fills transformed mask borders with zeros; when a background
+        channel is used, those pixels must be restored to background for softmax CE.
+        """
+        if isinstance(mask, torch.Tensor):
+            mask_np = mask.detach().cpu().numpy()
+        else:
+            mask_np = np.asarray(mask)
+
+        if mask_np.ndim != 3:
+            raise ValueError(f"Expected mask with 3 dims, got shape {mask_np.shape}")
+
+        num_classes = len(self.class_names)
+        if mask_np.shape[-1] != num_classes and mask_np.shape[0] == num_classes:
+            mask_np = np.transpose(mask_np, (1, 2, 0))
+
+        mask_np = (mask_np > 0.5).astype(np.uint8)
+        if not self.add_background_channel:
+            return mask_np
+
+        if mask_np.shape[-1] != num_classes:
+            raise ValueError(
+                f"Expected {num_classes} BE mask channels, got shape {mask_np.shape}"
+            )
+
+        label_map = np.zeros(mask_np.shape[:2], dtype=np.uint8)
+        lesion_mask_hwc = mask_np[..., 1:]
+        for class_idx in reversed(range(lesion_mask_hwc.shape[-1])):
+            label_map[lesion_mask_hwc[..., class_idx] > 0] = class_idx + 1
+        return np.eye(num_classes, dtype=np.uint8)[label_map]
+
     def __len__(self) -> int:
         if self.mode == "train":
             return len(self.filenames) * self.train_patches_per_image
@@ -334,6 +367,7 @@ class BEPatchDataset(Dataset):
                     img = out["image"]
                     img = img.permute(1, 2, 0)
                     mask_stack = out["mask"]
+                    mask_stack = self._sanitize_mask_hwc(mask_stack)
                 else:
                     out = self.transform(image=img)
                     img = out["image"]
@@ -348,9 +382,11 @@ class BEPatchDataset(Dataset):
 
             if mask_stack is not None:
                 if isinstance(mask_stack, np.ndarray):
+                    mask_stack = self._sanitize_mask_hwc(mask_stack)
                     be_t = torch.from_numpy(np.ascontiguousarray(mask_stack)).permute(2, 0, 1).float()
                 else:
-                    be_t = mask_stack.permute(2, 0, 1).float()
+                    mask_stack = self._sanitize_mask_hwc(mask_stack)
+                    be_t = torch.from_numpy(np.ascontiguousarray(mask_stack)).permute(2, 0, 1).float()
 
                 return {
                     "fname": self.filenames[img_idx],
@@ -386,6 +422,7 @@ class BEPatchDataset(Dataset):
                 be_patch = out["mask"]
             else:
                 be_patch = np.transpose(be_patch, (1, 2, 0))
+            be_patch = self._sanitize_mask_hwc(be_patch)
 
             if self.use_coords:
                 coords = self._coord_channels_global(

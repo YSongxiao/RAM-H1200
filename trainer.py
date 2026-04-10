@@ -2115,6 +2115,7 @@ class ScoreClsTrainer:
                 "monitor_metric": self.monitor_metric,
                 "num_classes": self.num_classes,
                 "score_values": self.score_values,
+                "ordinal_method": getattr(args, "ordinal_method", "independent"),
             }
             if self.is_main_process:
                 torch.save(ckpt, Path(args.model_save_path) / "model_latest.pth")
@@ -2276,6 +2277,8 @@ class ScoreClsTester:
         pbar = tqdm(self.test_loader)
         case_inference_times = {}
         rows = []
+        contradiction_count = 0
+        contradiction_total = 0
 
         with torch.no_grad():
             for batch in pbar:
@@ -2283,6 +2286,14 @@ class ScoreClsTester:
 
                 pred, infer_time = _time_model_forward(lambda: self._forward_logits(img), self.device)
                 _update_case_inference_times(case_inference_times, list(batch["case_name"]), infer_time)
+
+                threshold_pred = torch.sigmoid(pred) > 0.5
+                if threshold_pred.ndim == 1:
+                    threshold_pred = threshold_pred.unsqueeze(0)
+                if threshold_pred.shape[1] > 1:
+                    contradictions = (threshold_pred[:, :-1].int() < threshold_pred[:, 1:].int()).any(dim=1)
+                    contradiction_count += int(contradictions.sum().item())
+                contradiction_total += int(threshold_pred.shape[0])
 
                 pred_class = self._decode_ordinal_logits(pred)
                 self.confusion_matrix.update(pred_class, gt)
@@ -2325,6 +2336,11 @@ class ScoreClsTester:
         print(f"Pos/Neg ACC: {metric_dict['overall_pos_neg_acc']:.4f}")
         print(f"Binary Sensitivity: {metric_dict['overall_binary_sensitivity']:.4f}")
         print(f"Binary Specificity: {metric_dict['overall_binary_specificity']:.4f}")
+        contradiction_rate = contradiction_count / max(contradiction_total, 1)
+        print(
+            "Ordinal contradiction count: "
+            f"{contradiction_count}/{contradiction_total} ({contradiction_rate:.4f})"
+        )
 
         _print_case_inference_time_summary(case_inference_times)
         _save_case_inference_time_summary(self.args.checkpoint, case_inference_times)
