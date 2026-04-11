@@ -710,8 +710,8 @@ class BESegTrainer(FullHandBoneSegTrainer):
             self._set_sampler_epoch(self.val_loader, epoch)
 
             train_dataset = getattr(self.train_loader, "dataset", None)
-            if train_dataset is not None and hasattr(train_dataset, "update_sampling_ratio"):
-                train_dataset.update_sampling_ratio(epoch)
+            # if train_dataset is not None and hasattr(train_dataset, "update_sampling_ratio"):
+            #     train_dataset.update_sampling_ratio(epoch)
 
             if next(self.net.parameters()).device != self.device:
                 self.net.to(self.device)
