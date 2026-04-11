@@ -17,7 +17,6 @@ import pandas as pd
 from evaluations.metrics import (
     BESemanticSegmentationMetrics,
     CostAwareDiceMetric,
-    CreditAwareDiceScore,
     FullHandSegmentationMetrics,
     SegmentationMetrics,
     ClassificationMetrics,
@@ -554,16 +553,8 @@ class BESegTrainer(FullHandBoneSegTrainer):
         self.earlystop = EarlyStopping(patience=args.earlystop_patience, mode="max")
         self.best_metric = -np.inf
         self.loss_name = getattr(args, "loss", "creditaware")
-        self.metric_name = "dice" if self.loss_name == "dicece" else "credit_aware_dice"
+        self.metric_name = "positive_dice"
         self.use_nsd = False
-        credit_matrix = [row[:num_classes] for row in BE_CREDIT_MATRIX[:num_classes]]
-        self.credit_aware_dice_metric = CreditAwareDiceScore(
-            credit_matrix=credit_matrix,
-            include_background=False,
-            sigmoid=(num_classes == 1),
-            softmax=(num_classes > 1),
-            reduction="mean",
-        )
 
     def load_training_state(self, state: Dict):
         self.start_epoch = int(state.get("epoch", -1)) + 1
@@ -623,8 +614,8 @@ class BESegTrainer(FullHandBoneSegTrainer):
 
         pbar = tqdm(self.val_loader, disable=not self.is_main_process)
         avg_loss = 0.0
-        metric_scores = []
         dice_scores = []
+        positive_dice_scores = []
 
         with torch.no_grad():
             for step, batch in enumerate(pbar):
@@ -642,48 +633,54 @@ class BESegTrainer(FullHandBoneSegTrainer):
 
                 loss = self.criterion(logits, gt)
                 avg_loss += loss.item()
-
-                metric_val = float(self.credit_aware_dice_metric(logits, gt).item())
-                metric_scores.append(metric_val)
                 probs = torch.softmax(logits, dim=1) if self.num_classes > 1 else torch.sigmoid(logits)
                 if self.num_classes > 1:
                     pred_idx = torch.argmax(probs, dim=1)
                     pred = torch.nn.functional.one_hot(
                         pred_idx, num_classes=probs.shape[1]
                     ).permute(0, 3, 1, 2).float()
+                    pred_fg_mass = pred[:, 1:, ...].sum(dim=(1, 2, 3))
+                    gt_fg_mass = gt[:, 1:, ...].sum(dim=(1, 2, 3))
                 else:
                     pred = (probs > 0.5).float()
+                    pred_fg_mass = pred.sum(dim=(1, 2, 3))
+                    gt_fg_mass = gt.sum(dim=(1, 2, 3))
 
-                dice_tensor = monai.metrics.compute_dice(
-                    pred,
-                    gt,
-                    include_background=False,
-                )
+                dice_tensor = monai.metrics.compute_dice(pred, gt, include_background=False)
+                if dice_tensor.ndim == 1:
+                    dice_tensor = dice_tensor.unsqueeze(1)
+
                 finite_mask = torch.isfinite(dice_tensor)
-                if finite_mask.any():
-                    dice_val = float(dice_tensor[finite_mask].mean().item())
-                else:
-                    pred_fg = float(pred[:, 1:, ...].sum().item()) if self.num_classes > 1 else float(pred.sum().item())
-                    gt_fg = float(gt[:, 1:, ...].sum().item()) if self.num_classes > 1 else float(gt.sum().item())
-                    dice_val = 1.0 if pred_fg == 0.0 and gt_fg == 0.0 else 0.0
-                dice_scores.append(dice_val)
+                for sample_idx in range(dice_tensor.shape[0]):
+                    sample_finite_mask = finite_mask[sample_idx]
+                    if sample_finite_mask.any():
+                        sample_dice = float(dice_tensor[sample_idx][sample_finite_mask].mean().item())
+                    else:
+                        pred_fg = float(pred_fg_mass[sample_idx].item())
+                        gt_fg = float(gt_fg_mass[sample_idx].item())
+                        sample_dice = 1.0 if pred_fg == 0.0 and gt_fg == 0.0 else 0.0
+
+                    dice_scores.append(sample_dice)
+                    if gt_fg_mass[sample_idx].item() > 0:
+                        positive_dice_scores.append(sample_dice)
 
                 if self.is_main_process:
                     pbar.set_description(
                         f"Epoch {epoch} Validating loss: {loss.item():.4f}, "
-                        f"avg CreditAwareDice: {_safe_nanmean(metric_scores):.4f}, "
-                        f"avg Dice: {_safe_nanmean(dice_scores):.4f}"
+                        f"avg Dice: {_safe_nanmean(dice_scores):.4f}, "
+                        f"avg PositiveDice: {_safe_nanmean(positive_dice_scores):.4f}"
                     )
 
         avg_loss /= len(self.val_loader)
         epoch_dice = _safe_nanmean(dice_scores)
-        epoch_credit_aware_dice = _safe_nanmean(metric_scores)
-        epoch_metric = epoch_dice if self.metric_name == "dice" else epoch_credit_aware_dice
+        epoch_positive_dice = _safe_nanmean(positive_dice_scores)
+        epoch_metric = epoch_positive_dice
 
         if self.is_main_process:
             print(
                 f"[Validate] Epoch {epoch} Loss={avg_loss:.4f}, "
-                f"CreditAwareDice={epoch_credit_aware_dice:.4f}, Dice={epoch_dice:.4f}, "
+                f"Dice={epoch_dice:.4f}, "
+                f"PositiveDice={epoch_positive_dice:.4f}, "
                 f"Monitor={self.metric_name}:{epoch_metric:.4f}"
             )
 
@@ -708,10 +705,6 @@ class BESegTrainer(FullHandBoneSegTrainer):
         for epoch in range(self.start_epoch, self.max_epoch):
             self._set_sampler_epoch(self.train_loader, epoch)
             self._set_sampler_epoch(self.val_loader, epoch)
-
-            train_dataset = getattr(self.train_loader, "dataset", None)
-            # if train_dataset is not None and hasattr(train_dataset, "update_sampling_ratio"):
-            #     train_dataset.update_sampling_ratio(epoch)
 
             if next(self.net.parameters()).device != self.device:
                 self.net.to(self.device)
