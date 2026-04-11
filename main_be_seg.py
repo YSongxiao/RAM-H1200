@@ -28,10 +28,36 @@ BE_CREDIT_MATRIX = [
 ]
 
 
+def get_be_lesion_category_names(args):
+    if getattr(args, "svdh90_only", False):
+        return ["SvdH-BE-90"]
+    return list(BE_LESION_CATEGORY_NAMES)
+
+
+def get_be_class_names(args):
+    return ["Background"] + get_be_lesion_category_names(args)
+
+
+def get_be_credit_matrix(args):
+    class_names = get_be_class_names(args)
+    full_index = {name: idx for idx, name in enumerate(BE_CLASS_NAMES)}
+    selected_indices = [full_index[name] for name in class_names]
+    return [
+        [BE_CREDIT_MATRIX[row_idx][col_idx] for col_idx in selected_indices]
+        for row_idx in selected_indices
+    ]
+
+
 def get_args():
     parser = argparse.ArgumentParser()
 
     parser.add_argument("--seed", type=int, default=2026, help="Seed.")
+    parser.add_argument(
+        "--svdh90_only",
+        action="store_true",
+        default=False,
+        help="If set, segment only the SvdH-BE-90 class with background.",
+    )
     parser.add_argument("--mode", type=str, default="train", choices=["train", "test", "infer"], help="Mode.")
     parser.add_argument("--image_size", type=int, default=256, help="Validation/inference roi size.")
     parser.add_argument("--train_batch_size", type=int, default=8, help="Batch size for training.")
@@ -298,7 +324,7 @@ def prepare_train_run(args) -> Optional[dict]:
 
 
 def build_model(args, in_chans):
-    out_chans = 4
+    out_chans = len(get_be_class_names(args))
 
     if args.model == "Unet":
         return monai.networks.nets.DynUNet(
@@ -434,12 +460,16 @@ def main():
         seed_everything(args.seed + getattr(args, "rank", 0))
 
         in_chans = 1 + (2 if args.use_coords else 0)
-        num_classes = len(BE_CLASS_NAMES)
+        be_lesion_category_names = get_be_lesion_category_names(args)
+        be_class_names = get_be_class_names(args)
+        be_credit_matrix = get_be_credit_matrix(args)
+        num_classes = len(be_class_names)
         net = build_model(args, in_chans)
 
         n_params = sum(p.numel() for p in net.parameters())
         if is_main_process(args):
             print(f"Total parameters: {n_params / 1e6:.2f} M ({n_params:,} parameters)")
+            print(f"BE classes: {be_class_names}")
 
         if args.mode == "train":
             resume_state = prepare_train_run(args)
@@ -471,7 +501,8 @@ def main():
                 use_coords=args.use_coords,
                 train_patches_per_image=args.tr_patches_per_img,
                 center_region_half_size=args.center_region_half_size,
-                category_names=BE_LESION_CATEGORY_NAMES,
+                category_names=be_lesion_category_names,
+                svdh90_only=args.svdh90_only,
                 add_background_channel=True,
                 expected_num_classes=num_classes,
             )
@@ -483,7 +514,8 @@ def main():
                 use_coords=args.use_coords,
                 train_patches_per_image=args.tr_patches_per_img,
                 center_region_half_size=args.center_region_half_size,
-                category_names=BE_LESION_CATEGORY_NAMES,
+                category_names=be_lesion_category_names,
+                svdh90_only=args.svdh90_only,
                 add_background_channel=True,
                 expected_num_classes=num_classes,
             )
@@ -520,7 +552,7 @@ def main():
                 )
             else:
                 criterion = CreditAwareDiceCELoss(
-                    credit_matrix=BE_CREDIT_MATRIX,
+                    credit_matrix=be_credit_matrix,
                     ce_weight=None,
                     ce_loss_weight=1.0,
                     credit_dice_weight=1.0,
@@ -544,7 +576,8 @@ def main():
                 use_coords=args.use_coords,
                 train_patches_per_image=args.tr_patches_per_img,
                 center_region_half_size=args.center_region_half_size,
-                category_names=BE_LESION_CATEGORY_NAMES,
+                category_names=be_lesion_category_names,
+                svdh90_only=args.svdh90_only,
                 add_background_channel=True,
                 expected_num_classes=num_classes,
             )
@@ -572,7 +605,8 @@ def main():
                 use_coords=args.use_coords,
                 train_patches_per_image=args.tr_patches_per_img,
                 center_region_half_size=args.center_region_half_size,
-                category_names=BE_LESION_CATEGORY_NAMES,
+                category_names=be_lesion_category_names,
+                svdh90_only=args.svdh90_only,
                 add_background_channel=True,
                 expected_num_classes=num_classes,
             )

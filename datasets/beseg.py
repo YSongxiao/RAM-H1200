@@ -43,6 +43,7 @@ class BEPatchDataset(Dataset):
             train_patches_per_image: int = 24,
             center_region_half_size: int = 96,
             category_names: Optional[Sequence[str]] = None,
+            svdh90_only: bool = False,
             add_background_channel: bool = False,
             background_name: str = "Background",
             expected_num_classes: Optional[int] = None,
@@ -66,7 +67,11 @@ class BEPatchDataset(Dataset):
         assert self.normalize in ("fixed", "zscore", "minmax")
         self.dataset_mean = dataset_mean
         self.dataset_std = dataset_std
-        self.category_names = list(category_names) if category_names is not None else ["BE"]
+        self.svdh90_only = bool(svdh90_only)
+        if self.svdh90_only:
+            self.category_names = ["SvdH-BE-90"]
+        else:
+            self.category_names = list(category_names) if category_names is not None else ["BE"]
         self.add_background_channel = add_background_channel
         self.background_name = background_name
         self.class_names = ([self.background_name] + self.category_names) if self.add_background_channel else list(self.category_names)
