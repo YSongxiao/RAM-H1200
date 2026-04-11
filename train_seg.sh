@@ -68,7 +68,8 @@ PERSISTENT_WORKERS="${PERSISTENT_WORKERS:-0}"
 # 需要断点续训时，请在执行脚本时额外传入 --resume 或 --resume_from。
 # 留空时，脚本按上面的默认变量只跑一个实验。
 EXPERIMENTS=(
-    "Baseline_BoneSeg::--model MambaVisionT --train_batch_size 8"
+    "Baseline_BoneSeg::--model SegFormer --train_batch_size 8"
+    # "Baseline_BoneSeg::--model MambaVisionT --train_batch_size 8"
     # "Baseline_BoneSeg::--model SwinUMamba --train_batch_size 8"
     # "Baseline_BoneSeg::--model UMambaEnc --train_batch_size 8"
     # "Baseline_BoneSeg::--model TransUnet --train_batch_size 8"

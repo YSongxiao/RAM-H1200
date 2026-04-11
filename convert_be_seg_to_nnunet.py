@@ -9,8 +9,8 @@ from PIL import Image
 from pycocotools import mask as mask_utils
 
 
-SOURCE_DATA_ROOT = Path("/mnt/data2/datasx/FullHand/NIPS26/RAM-H1200/Segmentation")
-NNUNET_ROOT = Path("/mnt/data1/songxiao/RAM-H1200/models/nnUNet")
+SOURCE_DATA_ROOT = Path("/home/yafei/data/RAM-H1200/Segmentation")
+NNUNET_ROOT = Path("/home/yafei/code/RAM-H1200/models/nnUNet")
 DATASET_ID = 120
 DATASET_NAME = "RAMH1200BESeg"
 OVERWRITE = False

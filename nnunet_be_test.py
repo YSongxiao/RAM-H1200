@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
 import argparse
+import importlib
+import importlib.util
+import inspect
 import json
 import sys
 import time
@@ -23,6 +26,95 @@ BE_CREDIT_MATRIX = [
     [0.0, 0.5, 1.0, 0.0],
     [0.0, 0.0, 0.0, 1.0],
 ]
+
+
+def enable_torch_load_checkpoint_compatibility():
+    original_torch_load = torch.load
+    if getattr(original_torch_load, "_ram_checkpoint_compat", False):
+        return
+
+    supports_weights_only = "weights_only" in inspect.signature(original_torch_load).parameters
+
+    def compatible_torch_load(*args, **kwargs):
+        if supports_weights_only and "weights_only" not in kwargs:
+            # nnUNet checkpoints in this repo contain more than pure tensor weights.
+            kwargs["weights_only"] = False
+        return original_torch_load(*args, **kwargs)
+
+    compatible_torch_load._ram_checkpoint_compat = True
+    torch.load = compatible_torch_load
+
+
+def ensure_preferred_nnunet_package():
+    preferred_root = str((NNUNET_PACKAGE_ROOT / "nnunetv2").resolve())
+    existing = sys.modules.get("nnunetv2")
+    if existing is not None:
+        existing_file = getattr(existing, "__file__", "") or ""
+        if not existing_file.startswith(preferred_root):
+            for module_name in list(sys.modules.keys()):
+                if module_name == "nnunetv2" or module_name.startswith("nnunetv2."):
+                    del sys.modules[module_name]
+
+
+def import_preferred_nnunet_module(module_name: str):
+    ensure_preferred_nnunet_package()
+
+    project_root_str = str(PROJECT_ROOT.resolve())
+    preferred_root_str = str(NNUNET_PACKAGE_ROOT.resolve())
+
+    old_sys_path = list(sys.path)
+    filtered_sys_path = []
+    for path_entry in old_sys_path:
+        resolved = project_root_str if path_entry == "" else str(Path(path_entry).resolve())
+        if resolved == project_root_str and resolved != preferred_root_str:
+            continue
+        filtered_sys_path.append(path_entry)
+
+    sys.path[:] = [preferred_root_str] + [p for p in filtered_sys_path if p != preferred_root_str]
+    try:
+        return importlib.import_module(module_name)
+    finally:
+        sys.path[:] = old_sys_path
+
+
+def enable_nnunet_trainer_lookup_fallback():
+    predict_module = import_preferred_nnunet_module("nnunetv2.inference.predict_from_raw_data")
+    find_class_module = import_preferred_nnunet_module("nnunetv2.utilities.find_class_by_name")
+
+    original_recursive_find = predict_module.recursive_find_python_class
+    if getattr(original_recursive_find, "_ram_trainer_fallback", False):
+        return
+
+    def _load_local_trainer_be():
+        trainer_file = PROJECT_ROOT / "models" / "nnUNet" / "nnunetv2" / "training" / "nnUNetTrainer" / "nnUNetTrainerBE.py"
+        module_name = "_ram_local_nnUNetTrainerBE"
+        if module_name in sys.modules:
+            module = sys.modules[module_name]
+        else:
+            spec = importlib.util.spec_from_file_location(module_name, trainer_file)
+            if spec is None or spec.loader is None:
+                raise ImportError(f"Could not load spec for {trainer_file}")
+            module = importlib.util.module_from_spec(spec)
+            sys.modules[module_name] = module
+            spec.loader.exec_module(module)
+        return getattr(module, "nnUNetTrainerBE")
+
+    def recursive_find_with_fallback(folder: str, class_name: str, current_module: str):
+        result = original_recursive_find(folder, class_name, current_module)
+        if result is not None:
+            return result
+        if class_name != "nnUNetTrainerBE":
+            return None
+
+        try:
+            module = import_preferred_nnunet_module("nnunetv2.training.nnUNetTrainer.nnUNetTrainerBE")
+            return getattr(module, "nnUNetTrainerBE")
+        except Exception:
+            return _load_local_trainer_be()
+
+    recursive_find_with_fallback._ram_trainer_fallback = True
+    predict_module.recursive_find_python_class = recursive_find_with_fallback
+    find_class_module.recursive_find_python_class = recursive_find_with_fallback
 
 
 def add_bool_arg(parser: argparse.ArgumentParser, name: str, default: bool, help_text: str):
@@ -145,7 +237,9 @@ def load_dataset_meta(model_folder: Path):
 
 
 def build_predictor(args):
-    from nnunetv2.inference.predict_from_raw_data import nnUNetPredictor
+    predict_module = import_preferred_nnunet_module("nnunetv2.inference.predict_from_raw_data")
+    nnUNetPredictor = predict_module.nnUNetPredictor
+    print(f"Using nnUNet predictor module: {predict_module.__file__}")
 
     if args.device == "cpu":
         import multiprocessing
@@ -405,7 +499,8 @@ class BENnUNetEvaluator:
 
 
 def export_summary(pred_dir: Path, gt_dir: Path, output_root: Path, num_classes: int, args):
-    from nnunetv2.evaluation.evaluate_predictions import compute_metrics_on_folder_simple
+    evaluate_module = import_preferred_nnunet_module("nnunetv2.evaluation.evaluate_predictions")
+    compute_metrics_on_folder_simple = evaluate_module.compute_metrics_on_folder_simple
 
     labels = list(range(1, num_classes))
     if not labels:
@@ -423,6 +518,8 @@ def export_summary(pred_dir: Path, gt_dir: Path, output_root: Path, num_classes:
 
 def main():
     args = get_args()
+    enable_torch_load_checkpoint_compatibility()
+    enable_nnunet_trainer_lookup_fallback()
     dataset_folder, model_folder, input_dir, gt_dir, output_root, pred_dir = resolve_paths(args)
 
     ensure_exists(model_folder, "Model folder")
