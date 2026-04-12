@@ -11,14 +11,35 @@ from pycocotools import mask as mask_utils
 
 SOURCE_DATA_ROOT = Path("/home/yafei/data/RAM-H1200/Segmentation")
 NNUNET_ROOT = Path("/home/yafei/code/RAM-H1200/models/nnUNet")
-DATASET_ID = 120
+FULL_BE_DATASET_ID = 120
+SVDH90_ONLY_DATASET_ID = 121
 DATASET_NAME = "RAMH1200BESeg"
 OVERWRITE = False
-LABEL_MAP = {
+SVDH90_ONLY = False
+
+FULL_LABEL_MAP = {
     "SvdH-BE-90": 1,
     "SvdH-BE-50": 2,
     "Non-SvdH-BE": 3,
 }
+
+
+def get_label_map() -> dict[str, int]:
+    if SVDH90_ONLY:
+        return {"SvdH-BE-90": 1}
+    return dict(FULL_LABEL_MAP)
+
+
+def get_dataset_name() -> str:
+    if SVDH90_ONLY:
+        return f"{DATASET_NAME}_SvdH90Only"
+    return DATASET_NAME
+
+
+def get_dataset_id() -> int:
+    if SVDH90_ONLY:
+        return SVDH90_ONLY_DATASET_ID
+    return FULL_BE_DATASET_ID
 
 
 def dataset_folder_name(dataset_id: int, dataset_name: str) -> str:
@@ -142,7 +163,7 @@ def build_label_maps(coco: dict, split_root: Path, label_map: dict[str, int]):
 def convert_split(split_name: str, split_root: Path, output_images: Path, output_labels: Path | None):
     coco_path = split_root / "_annotations_be_rle.coco.json"
     coco = load_coco(coco_path)
-    image_infos, label_maps = build_label_maps(coco, split_root, LABEL_MAP)
+    image_infos, label_maps = build_label_maps(coco, split_root, get_label_map())
 
     case_ids = []
     mapping_rows = []
@@ -169,14 +190,11 @@ def convert_split(split_name: str, split_root: Path, output_images: Path, output
 
 
 def write_dataset_json(dataset_dir: Path, num_training: int):
+    labels = {"background": 0}
+    labels.update(get_label_map())
     payload = {
         "channel_names": {"0": "CR"},
-        "labels": {
-            "background": 0,
-            "SvdH-BE-90": 1,
-            "SvdH-BE-50": 2,
-            "Non-SvdH-BE": 3,
-        },
+        "labels": labels,
         "numTraining": int(num_training),
         "file_ending": ".png",
         "overwrite_image_reader_writer": "NaturalImage2DIO",
@@ -241,6 +259,8 @@ def print_next_commands(nnunet_root: Path, dataset_id: int, dataset_name: str):
     data_root = nnunet_root / "DATASET"
     print("\nConversion finished.")
     print(f"Dataset: {dataset_name}")
+    print(f"SVDH90_ONLY: {SVDH90_ONLY}")
+    print(f"Labels: {get_label_map()}")
     print("\nUse these environment variables before running nnU-Net:")
     print(f'export nnUNet_raw="{data_root / "nnUNet_raw"}"')
     print(f'export nnUNet_preprocessed="{data_root / "nnUNet_preprocessed"}"')
@@ -262,7 +282,8 @@ def main():
     for split in ("train", "val", "test"):
         require_existing_dir(source_root / split)
 
-    dataset_name = dataset_folder_name(DATASET_ID, DATASET_NAME)
+    dataset_id = get_dataset_id()
+    dataset_name = dataset_folder_name(dataset_id, get_dataset_name())
     dataset_dir = nnunet_root / "DATASET" / "nnUNet_raw" / dataset_name
     prepare_output_dir(dataset_dir, overwrite=OVERWRITE)
     (nnunet_root / "DATASET" / "nnUNet_preprocessed").mkdir(parents=True, exist_ok=True)
@@ -285,7 +306,7 @@ def main():
     print(f"Preprocessed split file: {preprocessed_split_path}")
     print(f"Case mapping json: {mapping_json_path}")
     print(f"Case mapping csv: {mapping_csv_path}")
-    print_next_commands(nnunet_root, DATASET_ID, dataset_name)
+    print_next_commands(nnunet_root, dataset_id, dataset_name)
 
 
 if __name__ == "__main__":
