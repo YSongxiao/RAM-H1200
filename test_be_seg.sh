@@ -50,7 +50,17 @@ EXPERIMENTS=(
     # "Baseline_BESeg_UNet::--model Unet --checkpoint ./ckpts/Baseline_BESeg_DiceCE_unet_20260405171220 --save_overlay --save_npz"
     # "Baseline_BESeg_Unet++::--model Unet++ --checkpoint ./ckpts/Baseline_BESeg_DiceCE_unet++_20260405184429 --save_overlay --save_npz"
     # "Baseline_BESeg_MambaVision::--model MambaVisionT --checkpoint ./ckpts/Baseline_BESeg_DiceCE_mambavisiont_20260407130414"
-    "Baseline_BESeg_SegFormer::--model SegFormer --checkpoint ./ckpts/Baseline_BESeg_DiceCE_segformer_20260410082244"
+    # "Baseline_BESeg_SegFormer::--model SegFormer --checkpoint ./ckpts/Baseline_BESeg_DiceCE_segformer_20260410082244"
+
+    
+    "Baseline_BESeg_90Only_UMambaEnc::--model UMambaEnc --checkpoint ./ckpts/Baseline_BESeg_DiceCE_90Only_umambaenc_20260412082351 --save_overlay --save_npz --svdh90_only"
+    "Baseline_BESeg_90Only_SwinUMamba::--model SwinUMamba --checkpoint ./ckpts/Baseline_BESeg_DiceCE_90Only_swinumamba_20260412053318 --save_overlay --save_npz --svdh90_only"
+    "Baseline_BESeg_90Only_SwinUNETR::--model SwinUNETR --checkpoint ./ckpts/Baseline_BESeg_DiceCE_90Only_swinunetr_20260412094018 --save_overlay --save_npz --svdh90_only"
+    "Baseline_BESeg_90Only_TransUnet::--model TransUnet --checkpoint ./ckpts/Baseline_BESeg_DiceCE_90Only_transunet_20260412110558 --save_overlay --save_npz --svdh90_only"
+    "Baseline_BESeg_90Only_UNet::--model Unet --checkpoint ./ckpts/Baseline_BESeg_DiceCE_90Only_unet_20260412125448 --save_overlay --save_npz --svdh90_only"
+    "Baseline_BESeg_90Only_Unet++::--model Unet++ --checkpoint ./ckpts/Baseline_BESeg_DiceCE_90Only_unet++_20260412133624 --save_overlay --save_npz --svdh90_only"
+    "Baseline_BESeg_90Only_SegFormer::--model SegFormer --checkpoint ./ckpts/Baseline_BESeg_DiceCE_90Only_segformer_20260412174000 --save_overlay --save_npz --svdh90_only"
+
 )
 
 has_checkpoint_arg() {
