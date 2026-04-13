@@ -18,7 +18,7 @@ STOP_ON_ERROR="${STOP_ON_ERROR:-1}"
 MODE="${MODE:-test}"
 MODEL="${MODEL:-UMambaEnc}"
 CHECKPOINT="${CHECKPOINT:-}"
-DATA_PATH="${DATA_PATH:-/home/yafei/data/RAM-H1200/Segmentation}"
+DATA_PATH="${DATA_PATH:-/mnt/data2/datasx/FullHand/NIPS26/RAM-H1200/Segmentation}"
 
 IMAGE_SIZE="${IMAGE_SIZE:-256}"
 VAL_BATCH_SIZE="${VAL_BATCH_SIZE:-1}"
@@ -53,13 +53,13 @@ EXPERIMENTS=(
     # "Baseline_BESeg_SegFormer::--model SegFormer --checkpoint ./ckpts/Baseline_BESeg_DiceCE_segformer_20260410082244"
 
     
-    "Baseline_BESeg_90Only_UMambaEnc::--model UMambaEnc --checkpoint ./ckpts/Baseline_BESeg_DiceCE_90Only_umambaenc_20260412082351 --save_overlay --save_npz --svdh90_only"
-    "Baseline_BESeg_90Only_SwinUMamba::--model SwinUMamba --checkpoint ./ckpts/Baseline_BESeg_DiceCE_90Only_swinumamba_20260412053318 --save_overlay --save_npz --svdh90_only"
-    "Baseline_BESeg_90Only_SwinUNETR::--model SwinUNETR --checkpoint ./ckpts/Baseline_BESeg_DiceCE_90Only_swinunetr_20260412094018 --save_overlay --save_npz --svdh90_only"
-    "Baseline_BESeg_90Only_TransUnet::--model TransUnet --checkpoint ./ckpts/Baseline_BESeg_DiceCE_90Only_transunet_20260412110558 --save_overlay --save_npz --svdh90_only"
-    "Baseline_BESeg_90Only_UNet::--model Unet --checkpoint ./ckpts/Baseline_BESeg_DiceCE_90Only_unet_20260412125448 --save_overlay --save_npz --svdh90_only"
-    "Baseline_BESeg_90Only_Unet++::--model Unet++ --checkpoint ./ckpts/Baseline_BESeg_DiceCE_90Only_unet++_20260412133624 --save_overlay --save_npz --svdh90_only"
-    "Baseline_BESeg_90Only_SegFormer::--model SegFormer --checkpoint ./ckpts/Baseline_BESeg_DiceCE_90Only_segformer_20260412174000 --save_overlay --save_npz --svdh90_only"
+    "Baseline_BESeg_90Only_UMambaEnc::--model UMambaEnc --checkpoint ./ckpts/Baseline_BESeg_DiceCE_90Only_umambaenc_20260412082351 --svdh90_only"
+    "Baseline_BESeg_90Only_SwinUMamba::--model SwinUMamba --checkpoint ./ckpts/Baseline_BESeg_DiceCE_90Only_swinumamba_20260412053318 --svdh90_only"
+    "Baseline_BESeg_90Only_SwinUNETR::--model SwinUNETR --checkpoint ./ckpts/Baseline_BESeg_DiceCE_90Only_swinunetr_20260412094018 --svdh90_only"
+    "Baseline_BESeg_90Only_TransUnet::--model TransUnet --checkpoint ./ckpts/Baseline_BESeg_DiceCE_90Only_transunet_20260412110558 --svdh90_only"
+    "Baseline_BESeg_90Only_UNet::--model Unet --checkpoint ./ckpts/Baseline_BESeg_DiceCE_90Only_unet_20260412125448 --svdh90_only"
+    "Baseline_BESeg_90Only_Unet++::--model Unet++ --checkpoint ./ckpts/Baseline_BESeg_DiceCE_90Only_unet++_20260412133624 --svdh90_only"
+    "Baseline_BESeg_90Only_SegFormer::--model SegFormer --checkpoint ./ckpts/Baseline_BESeg_DiceCE_90Only_segformer_20260412174000 --svdh90_only"
 
 )
 
