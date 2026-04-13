@@ -18,6 +18,7 @@ STOP_ON_ERROR="${STOP_ON_ERROR:-1}"
 
 DATASET_ID="${DATASET_ID:-120}"
 DATASET_NAME="${DATASET_NAME:-RAMH1200BESeg}"
+SVDH90_ONLY="${SVDH90_ONLY:-0}"
 NNUNET_DATA_ROOT="${NNUNET_DATA_ROOT:-${SCRIPT_DIR}/models/nnUNet/DATASET}"
 TRAINER="${TRAINER:-nnUNetTrainerBE}"
 PLANS="${PLANS:-nnUNetPlans}"
@@ -48,7 +49,8 @@ SAVE_PRED="${SAVE_PRED:-0}"
 CHILL="${CHILL:-0}"
 
 EXPERIMENTS=(
-    "Baseline_BESeg_nnUNet::--trainer nnUNetTrainerBE --plans nnUNetPlans --configuration 2d --folds 0 --checkpoint_name checkpoint_best.pth"
+    # "Baseline_BESeg_nnUNet::--trainer nnUNetTrainerBE --plans nnUNetPlans --configuration 2d --folds 0 --checkpoint_name checkpoint_best.pth"
+    "Baseline_BESeg_90Only_nnUNet::--trainer nnUNetTrainerBE --plans nnUNetPlans --configuration 2d --folds 0 --checkpoint_name checkpoint_best.pth --svdh90_only --save_npz --save_overlay"
 )
 
 run_experiment() {
@@ -124,6 +126,9 @@ run_experiment() {
     fi
     if [[ "${CHILL}" == "1" ]]; then
         cmd+=(--chill)
+    fi
+    if [[ "${SVDH90_ONLY}" == "1" ]]; then
+        cmd+=(--svdh90_only)
     fi
 
     cmd+=("$@")

@@ -72,14 +72,22 @@ AMP="${AMP:-1}"
 # 需要断点续训时，请在执行脚本时额外传入 --resume 或 --resume_from。
 # 留空时，脚本按上面的默认变量只跑一个实验。
 EXPERIMENTS=(
-    "Baseline_BESeg_DiceCE::--model MambaVisionT --loss dicece --train_batch_size 16"
-    "Baseline_BESeg_DiceCE::--model SegFormer --loss dicece --train_batch_size 16"
-    # "Baseline_BESeg_DiceCE::--model UMambaEnc --loss dicece --train_batch_size 16"
-    # "Baseline_BESeg_DiceCE::--model SwinUMamba --loss dicece --train_batch_size 16"
-    # "Baseline_BESeg_DiceCE::--model SwinUNETR --loss dicece --train_batch_size 16"
-    # "Baseline_BESeg_DiceCE::--model TransUnet --loss dicece --train_batch_size 16"
-    # "Baseline_BESeg_DiceCE::--model Unet --loss dicece --train_batch_size 16"
-    # "Baseline_BESeg_DiceCE::--model Unet++ --loss dicece --train_batch_size 16"
+    # "Baseline_BESeg_DiceCE_90Only::--model MambaVisionT --loss dicece --svdh90_only --train_batch_size 16"
+    # "Baseline_BESeg_DiceCE_90Only::--model SegFormer --loss dicece --svdh90_only --train_batch_size 16"
+    # "Baseline_BESeg_DiceCE_90Only::--model SwinUMamba --loss dicece --svdh90_only --train_batch_size 16"
+    # "Baseline_BESeg_DiceCE_90Only::--model UMambaEnc --loss dicece --svdh90_only --train_batch_size 16"
+    # "Baseline_BESeg_DiceCE_90Only::--model SwinUNETR --loss dicece --svdh90_only --train_batch_size 16"
+    # "Baseline_BESeg_DiceCE_90Only::--model TransUnet --loss dicece --svdh90_only --train_batch_size 16"
+    # "Baseline_BESeg_DiceCE_90Only::--model Unet --loss dicece --svdh90_only --train_batch_size 16"
+    # "Baseline_BESeg_DiceCE_90Only::--model Unet++ --loss dicece --svdh90_only --train_batch_size 16"
+
+    "Baseline_BESeg_DiceCE_New::--model SegFormer --loss dicece --train_batch_size 16"
+    "Baseline_BESeg_DiceCE_New::--model SwinUMamba --loss dicece --train_batch_size 16"
+    "Baseline_BESeg_DiceCE_New::--model UMambaEnc --loss dicece --train_batch_size 16"
+    "Baseline_BESeg_DiceCE_New::--model SwinUNETR --loss dicece --train_batch_size 16"
+    "Baseline_BESeg_DiceCE_New::--model TransUnet --loss dicece --train_batch_size 16"
+    "Baseline_BESeg_DiceCE_New::--model Unet --loss dicece --train_batch_size 16"
+    "Baseline_BESeg_DiceCE_New::--model Unet++ --loss dicece --train_batch_size 16"
 )
 
 run_experiment() {
