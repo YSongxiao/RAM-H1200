@@ -25,5 +25,5 @@ class nnUNetTrainerBE(nnUNetTrainer):
             device=device,
         )
 
-        self.num_epochs = 500
+        self.num_epochs = 1000
         self.oversample_foreground_percent = 0.7

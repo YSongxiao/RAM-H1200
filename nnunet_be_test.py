@@ -27,6 +27,11 @@ BE_CREDIT_MATRIX = [
     [0.0, 0.0, 0.0, 1.0],
 ]
 
+FULL_BE_DATASET_ID = 120
+SVDH90_ONLY_DATASET_ID = 121
+FULL_BE_DATASET_NAME = "RAMH1200BESeg"
+SVDH90_ONLY_DATASET_NAME = f"{FULL_BE_DATASET_NAME}_SvdH90Only"
+
 
 def enable_torch_load_checkpoint_compatibility():
     original_torch_load = torch.load
@@ -125,8 +130,14 @@ def add_bool_arg(parser: argparse.ArgumentParser, name: str, default: bool, help
 
 def get_args():
     parser = argparse.ArgumentParser(description="Run BE nnUNet test inference and export aligned metrics/artifacts.")
-    parser.add_argument("--dataset_id", type=int, default=120, help="nnUNet dataset id.")
-    parser.add_argument("--dataset_name", type=str, default="RAMH1200BESeg", help="nnUNet dataset suffix.")
+    parser.add_argument("--dataset_id", type=int, default=FULL_BE_DATASET_ID, help="nnUNet dataset id.")
+    parser.add_argument("--dataset_name", type=str, default=FULL_BE_DATASET_NAME, help="nnUNet dataset suffix.")
+    add_bool_arg(
+        parser,
+        "svdh90_only",
+        False,
+        "Use the SvdH90-only nnUNet dataset naming convention (Dataset121_RAMH1200BESeg_SvdH90Only).",
+    )
     parser.add_argument(
         "--nnunet_data_root",
         type=str,
@@ -183,7 +194,11 @@ def get_args():
     add_bool_arg(parser, "save_npz", False, "Save pred/image/gt bundles as npz.")
     add_bool_arg(parser, "save_pred", False, "Save separated pred/gt overlay pdfs.")
     add_bool_arg(parser, "chill", False, "Allow missing prediction files during summary generation.")
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.svdh90_only:
+        args.dataset_id = SVDH90_ONLY_DATASET_ID
+        args.dataset_name = SVDH90_ONLY_DATASET_NAME
+    return args
 
 
 def dataset_folder_name(dataset_id: int, dataset_name: str) -> str:
@@ -209,6 +224,48 @@ def resolve_paths(args):
 def ensure_exists(path: Path, kind: str):
     if not path.exists():
         raise FileNotFoundError(f"{kind} not found: {path}")
+
+
+def format_size(num_bytes: int) -> str:
+    size = float(num_bytes)
+    units = ["B", "KB", "MB", "GB", "TB"]
+    for unit in units:
+        if size < 1024.0 or unit == units[-1]:
+            return f"{size:.2f} {unit}"
+        size /= 1024.0
+    return f"{size:.2f} TB"
+
+
+def resolve_checkpoint_paths(model_folder: Path, folds, checkpoint_name: str) -> list[Path]:
+    if any(fold == "all" for fold in folds):
+        checkpoint_paths = sorted(model_folder.glob(f"fold_*/{checkpoint_name}"))
+    else:
+        checkpoint_paths = [model_folder / f"fold_{fold}" / checkpoint_name for fold in folds]
+    return checkpoint_paths
+
+
+def print_model_size_summary(model_folder: Path, folds, checkpoint_name: str):
+    checkpoint_paths = resolve_checkpoint_paths(model_folder, folds, checkpoint_name)
+    missing = [path for path in checkpoint_paths if not path.exists()]
+    if missing:
+        raise FileNotFoundError(f"Missing checkpoint file(s): {missing}")
+    if not checkpoint_paths:
+        raise FileNotFoundError(f"No checkpoint files matching {checkpoint_name} found under {model_folder}")
+
+    checkpoint_sizes = [path.stat().st_size for path in checkpoint_paths]
+    for path, size_bytes in zip(checkpoint_paths, checkpoint_sizes):
+        print(f"Checkpoint file: {path} ({format_size(size_bytes)})")
+    print(f"Total checkpoint size: {format_size(sum(checkpoint_sizes))}")
+
+    representative_checkpoint = checkpoint_paths[0]
+    checkpoint = torch.load(representative_checkpoint, map_location="cpu", weights_only=False)
+    state_dict = checkpoint.get("network_weights", checkpoint.get("model", checkpoint))
+    tensor_values = [value for value in state_dict.values() if torch.is_tensor(value)]
+    total_params = sum(value.numel() for value in tensor_values)
+    parameter_bytes = sum(value.numel() * value.element_size() for value in tensor_values)
+    print(f"Representative checkpoint: {representative_checkpoint.name}")
+    print(f"Model parameters: {total_params / 1e6:.2f} M ({total_params:,})")
+    print(f"Parameter memory: {format_size(parameter_bytes)}")
 
 
 def load_dataset_meta(model_folder: Path):
@@ -550,6 +607,7 @@ def main():
         )
         print(f"Using folds: {folds}")
         print(f"Checkpoint: {args.checkpoint_name}")
+        print_model_size_summary(model_folder, folds, args.checkpoint_name)
         start_time = time.perf_counter()
         predictor.predict_from_files(
             str(input_dir),
