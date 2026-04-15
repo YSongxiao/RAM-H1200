@@ -1,2 +1,2 @@
-python inference.py --data_path /home/yafei/data/RAM-H1200/Segmentation --prompt_type box --save_overlay --save_npz
-python inference.py --data_path /home/yafei/data/RAM-H1200/Segmentation --prompt_type point --save_overlay --save_npz
+python inference_RAM.py --data_path /home/yafei/data/RAM-H1200/Segmentation --prompt_type box --save_overlay --save_npz
+python inference_RAM.py --data_path /home/yafei/data/RAM-H1200/Segmentation --prompt_type point --save_overlay --save_npz
