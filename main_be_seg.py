@@ -55,7 +55,7 @@ def get_args():
     parser.add_argument(
         "--svdh90_only",
         action="store_true",
-        default=True,
+        default=False,
         help="If set, segment only the SvdH-BE-90 class with background.",
     )
     parser.add_argument("--mode", type=str, default="train", choices=["train", "test", "infer"], help="Mode.")
