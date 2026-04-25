@@ -10,53 +10,96 @@ from torch.utils.data.distributed import DistributedSampler
 import torch.distributed as dist
 
 
-IMAGE_STEM_TO_SCORE_KEY_BE = {
-    "R": "BE_R",
-    "U": "BE_U",
-    "IP": "BE_IP",
-    "L": "BE_L",
-    "MCP-T": "BE_MCP-T",
-    "MCP-I": "BE_MCP-I",
-    "MCP-M": "BE_MCP-M",
-    "MCP-R": "BE_MCP-R",
-    "MCP-S": "BE_MCP-S",
-    "CMC-T": "BE_CMC-T",
-    "PIP-I": "BE_PIP-I",
-    "PIP-M": "BE_PIP-M",
-    "PIP-R": "BE_PIP-R",
-    "PIP-S": "BE_PIP-S",
-    "S": "BE_S",
-    "Tm": "BE_Tm",
+SCORE_TYPE_CONFIGS = {
+    "BE": {
+        "score_file": "_annotation_be_scores.json",
+        "image_stem_to_score_key": {
+            "R": "BE_R",
+            "U": "BE_U",
+            "IP": "BE_IP",
+            "L": "BE_L",
+            "MCP-T": "BE_MCP-T",
+            "MCP-I": "BE_MCP-I",
+            "MCP-M": "BE_MCP-M",
+            "MCP-R": "BE_MCP-R",
+            "MCP-S": "BE_MCP-S",
+            "CMC-T": "BE_CMC-T",
+            "PIP-I": "BE_PIP-I",
+            "PIP-M": "BE_PIP-M",
+            "PIP-R": "BE_PIP-R",
+            "PIP-S": "BE_PIP-S",
+            "S": "BE_S",
+            "Tm": "BE_Tm",
+        },
+        "image_stem_to_display_name": {
+            "R": "Radius",
+            "U": "Ulna",
+            "IP": "IP",
+            "L": "Lunate",
+            "MCP-T": "MCP1",
+            "MCP-I": "MCP2",
+            "MCP-M": "MCP3",
+            "MCP-R": "MCP4",
+            "MCP-S": "MCP5",
+            "CMC-T": "CMC1",
+            "PIP-I": "PIP2",
+            "PIP-M": "PIP3",
+            "PIP-R": "PIP4",
+            "PIP-S": "PIP5",
+            "S": "Scaphoid",
+            "Tm": "Trapezium",
+        },
+    },
+    "JSN": {
+        "score_file": "_annotation_jsn_scores.json",
+        "image_stem_to_score_key": {
+            "MCP-T": "JSN_MCP-T",
+            "MCP-I": "JSN_MCP-I",
+            "MCP-M": "JSN_MCP-M",
+            "MCP-R": "JSN_MCP-R",
+            "MCP-S": "JSN_MCP-S",
+            "PIP-I": "JSN_PIP-I",
+            "PIP-M": "JSN_PIP-M",
+            "PIP-R": "JSN_PIP-R",
+            "PIP-S": "JSN_PIP-S",
+            "CMC-M": "JSN_CMC-M",
+            "CMC-R": "JSN_CMC-R",
+            "CMC-S": "JSN_CMC-S",
+            "SC": "JSN_SC",
+            "SR": "JSN_SR",
+            "STT": "JSN_STT",
+        },
+        "image_stem_to_display_name": {
+            "MCP-T": "MCP1",
+            "MCP-I": "MCP2",
+            "MCP-M": "MCP3",
+            "MCP-R": "MCP4",
+            "MCP-S": "MCP5",
+            "PIP-I": "PIP2",
+            "PIP-M": "PIP3",
+            "PIP-R": "PIP4",
+            "PIP-S": "PIP5",
+            "CMC-M": "CMC-M",
+            "CMC-R": "CMC-R",
+            "CMC-S": "CMC-S",
+            "SC": "SC",
+            "SR": "SR",
+            "STT": "STT",
+        },
+    },
 }
 
-IMAGE_STEM_TO_DISPLAY_NAME = {
-    "R": "Radius",
-    "U": "Ulna",
-    "IP": "IP",
-    "L": "Lunate",
-    "MCP-T": "MCP1",
-    "MCP-I": "MCP2",
-    "MCP-M": "MCP3",
-    "MCP-R": "MCP4",
-    "MCP-S": "MCP5",
-    "CMC-T": "CMC1",
-    "PIP-I": "PIP2",
-    "PIP-M": "PIP3",
-    "PIP-R": "PIP4",
-    "PIP-S": "PIP5",
-    "S": "Scaphoid",
-    "Tm": "Trapezium",
-}
+
+def get_score_type_config(score_type):
+    score_type = str(score_type).upper()
+    if score_type not in SCORE_TYPE_CONFIGS:
+        raise ValueError(f"Unsupported score_type: {score_type}")
+    return SCORE_TYPE_CONFIGS[score_type]
 
 def resolve_score_file(split_root, score_type):
     split_root = Path(split_root)
-    score_type = str(score_type).upper()
-    if score_type == "BE":
-        score_path = split_root / "_annotation_be_scores.json"
-    elif score_type == "JSN":
-        score_path = split_root / "_annotation_jsn_scores.json"
-    else:
-        raise ValueError(f"Unsupported score_type: {score_type}")
+    score_config = get_score_type_config(score_type)
+    score_path = split_root / score_config["score_file"]
 
     if not score_path.exists():
         raise FileNotFoundError(f"Missing score file: {score_path}")
@@ -83,15 +126,13 @@ class BEScoreDataset(Dataset):
         self.to_rgb = to_rgb
 
         score_path = resolve_score_file(self.split_root, self.score_type)
-
+        score_config = get_score_type_config(self.score_type)
         score_data = json.loads(score_path.read_text())
 
         self.samples = []
         self.raw_scores = []
-        self.image_stem_to_score_key = {
-            image_stem: score_key.replace("BE_", f"{self.score_type}_", 1)
-            for image_stem, score_key in IMAGE_STEM_TO_SCORE_KEY_BE.items()
-        }
+        self.image_stem_to_score_key = dict(score_config["image_stem_to_score_key"])
+        self.image_stem_to_display_name = dict(score_config["image_stem_to_display_name"])
         for hand_image_name, hand_scores in score_data.items():
             case_name = Path(hand_image_name).stem
             case_dir = self.split_root / case_name
@@ -112,7 +153,7 @@ class BEScoreDataset(Dataset):
                     {
                         "img_path": img_path,
                         "case_name": case_name,
-                        "joint_name": IMAGE_STEM_TO_DISPLAY_NAME.get(image_stem, image_stem),
+                        "joint_name": self.image_stem_to_display_name.get(image_stem, image_stem),
                         "score_key": score_key,
                         "raw_score": raw_score,
                     }
@@ -226,14 +267,14 @@ def seed_scorecls_worker(worker_id):
 def collect_score_values(data_root, split, score_type="BE"):
     split_root = Path(data_root) / split
     score_path = resolve_score_file(split_root, score_type)
-
+    score_config = get_score_type_config(score_type)
     score_data = json.loads(score_path.read_text())
-    score_type = str(score_type).upper()
+    relevant_score_keys = tuple(score_config["image_stem_to_score_key"].values())
     score_values = set()
     for _, hand_scores in score_data.items():
-        joint_scores = hand_scores
-        for score in joint_scores.values():
-            score_values.add(int(score))
+        for score_key in relevant_score_keys:
+            if score_key in hand_scores:
+                score_values.add(int(hand_scores[score_key]))
     return sorted(score_values)
 
 
