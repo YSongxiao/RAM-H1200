@@ -6,8 +6,6 @@ This repository contains benchmark code for RAM-H1200 tasks, including:
 - BE segmentation
 - Scoring of SvdH BE / JSN
 
-Agent-related updates are maintained on the `agent-test-svdh` branch.
-
 ## Setup
 
 First download the RAM-H1200 dataset from Hugging Face:
