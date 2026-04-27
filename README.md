@@ -10,7 +10,33 @@ Agent-related updates are maintained on the `agent-test-svdh` branch.
 
 ## Setup
 
-Prepare your Python environment first, then update the placeholder paths in the shell scripts or pass them through environment variables.
+First download the RAM-H1200 dataset from Hugging Face:
+
+- https://huggingface.co/datasets/TokyoTechMagicYang/RAM-H1200
+
+For example:
+
+```bash
+git clone https://huggingface.co/datasets/TokyoTechMagicYang/RAM-H1200
+```
+
+Then prepare your Python environment and update the placeholder paths in the shell scripts, or pass them through environment variables.
+
+Install the Python dependencies with:
+
+```bash
+pip install -r requirements.txt
+```
+
+This repository also includes local packages for some components. Install them when needed:
+
+```bash
+pip install -e ./models/nnUNet
+pip install -e ./models/segment-anything
+pip install -e ./models/MedSAM
+```
+
+Please install a CUDA-compatible PyTorch build first if you are using GPU training or inference.
 
 Common path placeholders:
 

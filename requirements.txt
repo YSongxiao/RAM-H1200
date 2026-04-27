@@ -1,0 +1,59 @@
+# Install a CUDA-matching PyTorch build first, for example from:
+# https://pytorch.org/get-started/locally/
+torch
+torchvision
+torchaudio
+
+# Core scientific Python stack
+numpy>=1.24
+scipy
+pandas
+scikit-learn
+scikit-image
+matplotlib
+seaborn
+tqdm
+openpyxl
+
+# Image and medical image I/O
+Pillow
+opencv-python
+pycocotools
+SimpleITK>=2.2.1
+nibabel
+tifffile
+imagecodecs
+h5py
+
+# Training and augmentation
+albumentations
+monai==1.3.0
+segmentation-models-pytorch
+timm
+torchmetrics
+tensorboard
+tensorboardX
+
+# Utility packages used by benchmark models and scripts
+einops
+yacs
+requests
+graphviz
+ml-collections
+medpy
+
+# nnU-Net dependencies
+acvl-utils>=0.2.6,<0.3
+dynamic-network-architectures>=0.4.1,<0.5
+batchgenerators>=0.25.1
+batchgeneratorsv2>=0.3.2
+blosc2>=3.0.0b1
+
+# Optional backends for Mamba-based models
+mamba-ssm
+causal-conv1d
+
+# Install local packages from this repository if needed:
+# pip install -e ./models/nnUNet
+# pip install -e ./models/segment-anything
+# pip install -e ./models/MedSAM
