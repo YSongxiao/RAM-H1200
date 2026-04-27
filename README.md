@@ -91,7 +91,7 @@ Testing:
 GPU_ID=0 DATA_PATH=/path/to/segmentation_data bash test_be_seg.sh
 ```
 
-nnU-Net can also be used for BE segmentation.
+#### nnU-Net can also be used for BE segmentation.
 
 First convert the BE segmentation dataset to the nnU-Net directory layout:
 
