@@ -18,7 +18,7 @@ STOP_ON_ERROR="${STOP_ON_ERROR:-1}"
 MODE="${MODE:-test}"
 MODEL="${MODEL:-UMambaEnc}"
 CHECKPOINT="${CHECKPOINT:-}"
-DATA_PATH="${DATA_PATH:-/mnt/data2/datasx/FullHand/NIPS26/RAM-H1200/Segmentation}"
+DATA_PATH="${DATA_PATH:-/path/to/segmentation_data}"
 
 IMAGE_SIZE="${IMAGE_SIZE:-256}"
 VAL_BATCH_SIZE="${VAL_BATCH_SIZE:-1}"

@@ -18,7 +18,7 @@ SCORE_TYPE="${SCORE_TYPE:-BE}"
 MODEL="${MODEL:-ResNet34}"
 TRIAL_NAME="${TRIAL_NAME:-Benchmark_BEScoring}"
 CHECKPOINT="${CHECKPOINT:-./ckpts}"
-DATA_PATH="${DATA_PATH:-/home/yafei/data/RAM-H1200/SvdH_Scoring/SvdH_JSN_Scoring/}"
+DATA_PATH="${DATA_PATH:-/path/to/jsn_scoring_data}"
 
 IMAGE_SIZE="${IMAGE_SIZE:-224}"
 TRAIN_BATCH_SIZE="${TRAIN_BATCH_SIZE:-32}"
@@ -39,14 +39,14 @@ USE_CLASS_WEIGHT="${USE_CLASS_WEIGHT:-0}"
 EARLYSTOP="${EARLYSTOP:-0}"
 PIN_MEMORY="${PIN_MEMORY:-1}"
 
-# 单卡顺序实验。格式：
-#   "最终TrialName::额外参数"
-# 例如：
+# Sequential single-GPU experiments. Format:
+#   "FinalTrialName::extra arguments"
+# Example:
 # EXPERIMENTS=(
 #   "Baseline_BEScore::--model ResNet34 --score_type BE"
 #   "MedMamba_BEScore::--model MedMamba --score_type BE --amp"
 # )
-# 留空时按上面的默认变量只跑一个实验。
+# If left empty, only one experiment is run with the default variables above.
 EXPERIMENTS=(
     # "Baseline_BEScore::--model ConvNeXtV2 --score_type BE"
     # "Baseline_BEScore::--model EfficientNetV2 --score_type BE"

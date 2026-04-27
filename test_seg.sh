@@ -18,7 +18,7 @@ STOP_ON_ERROR="${STOP_ON_ERROR:-1}"
 MODE="${MODE:-test}"
 MODEL="${MODEL:-SwinUMamba}"
 CHECKPOINT="${CHECKPOINT:-}"
-DATA_PATH="${DATA_PATH:-/home/yafei/data/RAM-H1200/Segmentation}"
+DATA_PATH="${DATA_PATH:-/path/to/segmentation_data}"
 
 IMAGE_SIZE="${IMAGE_SIZE:-512}"
 VAL_BATCH_SIZE="${VAL_BATCH_SIZE:-1}"

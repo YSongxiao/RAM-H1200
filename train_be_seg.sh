@@ -34,10 +34,10 @@ STOP_ON_ERROR="${STOP_ON_ERROR:-1}"
 
 MODE="${MODE:-train}"
 MODEL="${MODEL:-UMambaEnc}"
-LOSS="${LOSS:-creditaware}"
+LOSS="${LOSS:-dicece}"
 TRIAL_NAME="${TRIAL_NAME:-Benchmark_BESeg}"
 CHECKPOINT="${CHECKPOINT:-./ckpts}"
-DATA_PATH="${DATA_PATH:-/home/yafei/data/RAM-H1200/Segmentation}"
+DATA_PATH="${DATA_PATH:-/path/to/segmentation_data}"
 PRETRAINED_WEIGHTS="${PRETRAINED_WEIGHTS:-}"
 
 IMAGE_SIZE="${IMAGE_SIZE:-256}"
@@ -57,20 +57,20 @@ PERSISTENT_WORKERS="${PERSISTENT_WORKERS:-0}"
 USE_COORDS="${USE_COORDS:-1}"
 AMP="${AMP:-1}"
 
-# 指定使用哪些物理 GPU。
-# 例如：
+# Specify which physical GPUs to use.
+# Example:
 #   GPU_IDS="0,1,3"
-# 如果后面想换卡，直接改这里。
+# Update this value here if you want to switch GPUs later.
 
-# 批量顺序实验写在这里。格式：
-#   "最终TrialName::额外参数"
-# 例如：
+# Define sequential batch experiments here. Format:
+#   "FinalTrialName::extra arguments"
+# Example:
 # EXPERIMENTS=(
 #   "Baseline_BESeg::--model UMambaEnc --loss creditaware --train_batch_size 8"
 #   "DiceCE_BESeg::--model SwinUMamba --loss dicece --train_batch_size 8"
 # )
-# 需要断点续训时，请在执行脚本时额外传入 --resume 或 --resume_from。
-# 留空时，脚本按上面的默认变量只跑一个实验。
+# To resume training, pass --resume or --resume_from when launching the script.
+# If left empty, the script runs a single experiment with the default variables above.
 EXPERIMENTS=(
     # "Baseline_BESeg_DiceCE_90Only::--model MambaVisionT --loss dicece --svdh90_only --train_batch_size 16"
     # "Baseline_BESeg_DiceCE_90Only::--model SegFormer --loss dicece --svdh90_only --train_batch_size 16"
@@ -81,13 +81,13 @@ EXPERIMENTS=(
     # "Baseline_BESeg_DiceCE_90Only::--model Unet --loss dicece --svdh90_only --train_batch_size 16"
     # "Baseline_BESeg_DiceCE_90Only::--model Unet++ --loss dicece --svdh90_only --train_batch_size 16"
 
-    "Baseline_BESeg_DiceCE_New::--model SegFormer --loss dicece --train_batch_size 16"
-    "Baseline_BESeg_DiceCE_New::--model SwinUMamba --loss dicece --train_batch_size 16"
-    "Baseline_BESeg_DiceCE_New::--model UMambaEnc --loss dicece --train_batch_size 16"
-    "Baseline_BESeg_DiceCE_New::--model SwinUNETR --loss dicece --train_batch_size 16"
-    "Baseline_BESeg_DiceCE_New::--model TransUnet --loss dicece --train_batch_size 16"
-    "Baseline_BESeg_DiceCE_New::--model Unet --loss dicece --train_batch_size 16"
-    "Baseline_BESeg_DiceCE_New::--model Unet++ --loss dicece --train_batch_size 16"
+    "Baseline_BESeg_DiceCE::--model SegFormer --loss dicece --train_batch_size 16"
+    "Baseline_BESeg_DiceCE::--model SwinUMamba --loss dicece --train_batch_size 16"
+    "Baseline_BESeg_DiceCE::--model UMambaEnc --loss dicece --train_batch_size 16"
+    "Baseline_BESeg_DiceCE::--model SwinUNETR --loss dicece --train_batch_size 16"
+    "Baseline_BESeg_DiceCE::--model TransUnet --loss dicece --train_batch_size 16"
+    "Baseline_BESeg_DiceCE::--model Unet --loss dicece --train_batch_size 16"
+    "Baseline_BESeg_DiceCE::--model Unet++ --loss dicece --train_batch_size 16"
 )
 
 run_experiment() {

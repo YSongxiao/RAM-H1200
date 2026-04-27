@@ -36,7 +36,7 @@ MODE="${MODE:-train}"
 MODEL="${MODEL:-SwinUMamba}"
 TRIAL_NAME="${TRIAL_NAME:-Benchmark_BoneSeg}"
 CHECKPOINT="${CHECKPOINT:-./ckpts}"
-DATA_PATH="${DATA_PATH:-/home/yafei/data/RAM-H1200/Segmentation}"
+DATA_PATH="${DATA_PATH:-/path/to/segmentation_data}"
 PRETRAINED_WEIGHTS="${PRETRAINED_WEIGHTS:-./ckpts/Annotation_swinumamba_202601210504/model_best_dice.pth1}"
 
 IMAGE_SIZE="${IMAGE_SIZE:-512}"
@@ -53,20 +53,20 @@ PREFETCH_FACTOR="${PREFETCH_FACTOR:-2}"
 PIN_MEMORY="${PIN_MEMORY:-1}"
 PERSISTENT_WORKERS="${PERSISTENT_WORKERS:-0}"
 
-# 指定使用哪些物理 GPU。
-# 例如：
+# Specify which physical GPUs to use.
+# Example:
 #   GPU_IDS="0,1,3"
-# 如果后面想换卡，直接改这里。
+# Update this value here if you want to switch GPUs later.
 
-# 批量顺序实验写在这里。格式：
-#   "最终TrialName::额外参数"
-# 例如：
+# Define sequential batch experiments here. Format:
+#   "FinalTrialName::extra arguments"
+# Example:
 # EXPERIMENTS=(
 #   "swinumamba_lr1e4::--model SwinUMamba --lr 1e-4 --train_batch_size 8"
 #   "unetpp_lr5e5::--model Unet++ --lr 5e-5 --train_batch_size 8"
 # )
-# 需要断点续训时，请在执行脚本时额外传入 --resume 或 --resume_from。
-# 留空时，脚本按上面的默认变量只跑一个实验。
+# To resume training, pass --resume or --resume_from when launching the script.
+# If left empty, the script runs a single experiment with the default variables above.
 EXPERIMENTS=(
     "Baseline_BoneSeg::--model SegFormer --train_batch_size 8"
     # "Baseline_BoneSeg::--model MambaVisionT --train_batch_size 8"

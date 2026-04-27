@@ -19,7 +19,7 @@ MODE="${MODE:-test}"
 SCORE_TYPE="${SCORE_TYPE:-BE}"
 MODEL="${MODEL:-ResNet34}"
 CHECKPOINT="${CHECKPOINT:-}"
-DATA_PATH="${DATA_PATH:-/mnt/data2/datasx/FullHand/NIPS26/RAM-H1200/SvdH_Scoring/SvdH_BE_Scoring}"
+DATA_PATH="${DATA_PATH:-/path/to/be_scoring_data}"
 
 IMAGE_SIZE="${IMAGE_SIZE:-224}"
 VAL_BATCH_SIZE="${VAL_BATCH_SIZE:-32}"

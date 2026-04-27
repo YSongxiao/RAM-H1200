@@ -42,7 +42,7 @@ SCORE_TYPE="${SCORE_TYPE:-BE}"
 MODEL="${MODEL:-ResNet34}"
 TRIAL_NAME="${TRIAL_NAME:-Benchmark_BEScoring_DDP}"
 CHECKPOINT="${CHECKPOINT:-./ckpts}"
-DATA_PATH="${DATA_PATH:-/home/yafei/data/RAM-H1200/SvdH_Scoring/SvdH_JSN_Scoring/}"
+DATA_PATH="${DATA_PATH:-/path/to/jsn_scoring_data}"
 
 IMAGE_SIZE="${IMAGE_SIZE:-224}"
 TRAIN_BATCH_SIZE="${TRAIN_BATCH_SIZE:-32}"
@@ -65,14 +65,14 @@ EARLYSTOP="${EARLYSTOP:-0}"
 PIN_MEMORY="${PIN_MEMORY:-0}"
 PERSISTENT_WORKERS="${PERSISTENT_WORKERS:-0}"
 
-# 多卡顺序实验。格式：
-#   "最终TrialName::额外参数"
-# 例如：
+# Sequential multi-GPU experiments. Format:
+#   "FinalTrialName::extra arguments"
+# Example:
 # EXPERIMENTS=(
 #   "ResNet34_JSN_DDP::--model ResNet34 --score_type JSN"
 #   "ConvNeXtV2_JSN_DDP::--model ConvNeXtV2 --score_type JSN --amp"
 # )
-# 留空时按上面的默认变量只跑一个实验。
+# If left empty, only one experiment is run with the default variables above.
 EXPERIMENTS=(
     # "ResNet34_JSN::--model ResNet34 --score_type JSN"
     # "DenseNet_JSN::--model DenseNet --score_type JSN"

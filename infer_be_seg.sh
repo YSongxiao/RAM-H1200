@@ -15,8 +15,8 @@ export CUDA_VISIBLE_DEVICES="${GPU_ID}"
 
 MODE="${MODE:-test}"
 MODEL="${MODEL:-UMambaEnc}"
-CHECKPOINT="${CHECKPOINT:-/home/yafei/code/RAM-H1200/ckpts/Baseline_BESeg_umambaenc_20260405003952}"
-DATA_PATH="${DATA_PATH:-/home/yafei/data/RAM-H1200/split_dataset_via_be_mask_remapped}"
+CHECKPOINT="${CHECKPOINT:-/path/to/checkpoint_dir}"
+DATA_PATH="${DATA_PATH:-/path/to/be_seg_inference_data}"
 
 IMAGE_SIZE="${IMAGE_SIZE:-256}"
 VAL_BATCH_SIZE="${VAL_BATCH_SIZE:-1}"

@@ -39,26 +39,26 @@ fi
 # Leave empty to run a single test with the default variables above.
 EXPERIMENTS=(
     # ---- BE scoring ----
-    "Baseline_BEScore_ConvNeXtV2::--score_type BE --model ConvNeXtV2 --checkpoint ./ckpts/Baseline_BEScore_be_convnextv2_20260406214233 --data_path /mnt/data2/datasx/FullHand/NIPS26/RAM-H1200/SvdH_Scoring/SvdH_BE_Scoring"
-    "Baseline_BEScore_DenseNet::--score_type BE --model DenseNet --checkpoint ./ckpts/Baseline_BEScore_be_densenet_20260406043912 --data_path /mnt/data2/datasx/FullHand/NIPS26/RAM-H1200/SvdH_Scoring/SvdH_BE_Scoring"
-    "Baseline_BEScore_EfficientFormer::--score_type BE --model EfficientFormer --checkpoint ./ckpts/Baseline_BEScore_be_efficientformer_20260406124424 --data_path /mnt/data2/datasx/FullHand/NIPS26/RAM-H1200/SvdH_Scoring/SvdH_BE_Scoring"
-    "Baseline_BEScore_EfficientNetV2::--score_type BE --model EfficientNetV2 --checkpoint ./ckpts/Baseline_BEScore_be_efficientnetv2_20260407010854 --data_path /mnt/data2/datasx/FullHand/NIPS26/RAM-H1200/SvdH_Scoring/SvdH_BE_Scoring"
-    "Baseline_BEScore_LeViT::--score_type BE --model LeViT --checkpoint ./ckpts/Baseline_BEScore_be_levit_20260406151143 --data_path /mnt/data2/datasx/FullHand/NIPS26/RAM-H1200/SvdH_Scoring/SvdH_BE_Scoring"
-    "Baseline_BEScore_MambaVisionT::--score_type BE --model MambaVisionT --checkpoint ./ckpts/Baseline_BEScore_be_mambavisiont_20260406192728 --data_path /mnt/data2/datasx/FullHand/NIPS26/RAM-H1200/SvdH_Scoring/SvdH_BE_Scoring"
-    "Baseline_BEScore_MedMamba::--score_type BE --model MedMamba --checkpoint ./ckpts/Baseline_BEScore_be_medmamba_20260406065848 --data_path /mnt/data2/datasx/FullHand/NIPS26/RAM-H1200/SvdH_Scoring/SvdH_BE_Scoring"
-    "Baseline_BEScore_MobileViT::--score_type BE --model MobileViT --checkpoint ./ckpts/Baseline_BEScore_be_mobilevit_20260406171657 --data_path /mnt/data2/datasx/FullHand/NIPS26/RAM-H1200/SvdH_Scoring/SvdH_BE_Scoring"
-    "Baseline_BEScore_ResNet34::--score_type BE --model ResNet34 --checkpoint ./ckpts/Baseline_BEScore_be_resnet34_20260406034451 --data_path /mnt/data2/datasx/FullHand/NIPS26/RAM-H1200/SvdH_Scoring/SvdH_BE_Scoring"
+    "Baseline_BEScore_ConvNeXtV2::--score_type BE --model ConvNeXtV2 --checkpoint ./ckpts/Baseline_BEScore_be_convnextv2_20260406214233 --data_path /path/to/be_scoring_data"
+    "Baseline_BEScore_DenseNet::--score_type BE --model DenseNet --checkpoint ./ckpts/Baseline_BEScore_be_densenet_20260406043912 --data_path /path/to/be_scoring_data"
+    "Baseline_BEScore_EfficientFormer::--score_type BE --model EfficientFormer --checkpoint ./ckpts/Baseline_BEScore_be_efficientformer_20260406124424 --data_path /path/to/be_scoring_data"
+    "Baseline_BEScore_EfficientNetV2::--score_type BE --model EfficientNetV2 --checkpoint ./ckpts/Baseline_BEScore_be_efficientnetv2_20260407010854 --data_path /path/to/be_scoring_data"
+    "Baseline_BEScore_LeViT::--score_type BE --model LeViT --checkpoint ./ckpts/Baseline_BEScore_be_levit_20260406151143 --data_path /path/to/be_scoring_data"
+    "Baseline_BEScore_MambaVisionT::--score_type BE --model MambaVisionT --checkpoint ./ckpts/Baseline_BEScore_be_mambavisiont_20260406192728 --data_path /path/to/be_scoring_data"
+    "Baseline_BEScore_MedMamba::--score_type BE --model MedMamba --checkpoint ./ckpts/Baseline_BEScore_be_medmamba_20260406065848 --data_path /path/to/be_scoring_data"
+    "Baseline_BEScore_MobileViT::--score_type BE --model MobileViT --checkpoint ./ckpts/Baseline_BEScore_be_mobilevit_20260406171657 --data_path /path/to/be_scoring_data"
+    "Baseline_BEScore_ResNet34::--score_type BE --model ResNet34 --checkpoint ./ckpts/Baseline_BEScore_be_resnet34_20260406034451 --data_path /path/to/be_scoring_data"
 
     # ---- JSN scoring ----
-    "Baseline_JSNScore_DenseNet::--score_type JSN --model DenseNet --checkpoint ./ckpts/Baseline_JSNScore_jsn_densenet_20260408145311 --data_path /mnt/data2/datasx/FullHand/NIPS26/RAM-H1200/SvdH_Scoring/SvdH_JSN_Scoring/"
-    "Baseline_JSNScore_ConvNeXtV2::--score_type JSN --model ConvNeXtV2 --checkpoint ./ckpts/Baseline_JSNScore_jsn_convnextv2_20260408235834 --data_path /mnt/data2/datasx/FullHand/NIPS26/RAM-H1200/SvdH_Scoring/SvdH_JSN_Scoring/"
-    "Baseline_JSNScore_EfficientFormer::--score_type JSN --model EfficientFormer --checkpoint ./ckpts/Baseline_JSNScore_jsn_efficientformer_20260408193624 --data_path /mnt/data2/datasx/FullHand/NIPS26/RAM-H1200/SvdH_Scoring/SvdH_JSN_Scoring/"
-    "Baseline_JSNScore_EfficientNetV2::--score_type JSN --model EfficientNetV2 --checkpoint ./ckpts/Baseline_JSNScore_jsn_efficientnetv2_20260409112019 --data_path /mnt/data2/datasx/FullHand/NIPS26/RAM-H1200/SvdH_Scoring/SvdH_JSN_Scoring/"
-    "Baseline_JSNScore_LeViT::--score_type JSN --model LeViT --checkpoint ./ckpts/Baseline_JSNScore_jsn_levit_20260408210652 --data_path /mnt/data2/datasx/FullHand/NIPS26/RAM-H1200/SvdH_Scoring/SvdH_JSN_Scoring/"
-    "Baseline_JSNScore_MambaVisionT::--score_type JSN --model MambaVisionT --checkpoint ./ckpts/Baseline_JSNScore_jsn_mambavisiont_20260409221059 --data_path /mnt/data2/datasx/FullHand/NIPS26/RAM-H1200/SvdH_Scoring/SvdH_JSN_Scoring/"
-    "Baseline_JSNScore_MedMamba::--score_type JSN --model MedMamba --checkpoint ./ckpts/Baseline_JSNScore_jsn_medmamba_20260408161409 --data_path /mnt/data2/datasx/FullHand/NIPS26/RAM-H1200/SvdH_Scoring/SvdH_JSN_Scoring/"
-    "Baseline_JSNScore_MobileViT::--score_type JSN --model MobileViT --checkpoint ./ckpts/Baseline_JSNScore_jsn_mobilevit_20260408222750 --data_path /mnt/data2/datasx/FullHand/NIPS26/RAM-H1200/SvdH_Scoring/SvdH_JSN_Scoring/"
-    "Baseline_JSNScore_ResNet34::--score_type JSN --model ResNet34 --checkpoint ./ckpts/Baseline_JSNScore_jsn_resnet34_20260408140357 --data_path /mnt/data2/datasx/FullHand/NIPS26/RAM-H1200/SvdH_Scoring/SvdH_JSN_Scoring/"
+    "Baseline_JSNScore_DenseNet::--score_type JSN --model DenseNet --checkpoint ./ckpts/Baseline_JSNScore_jsn_densenet_20260408145311 --data_path /path/to/jsn_scoring_data"
+    "Baseline_JSNScore_ConvNeXtV2::--score_type JSN --model ConvNeXtV2 --checkpoint ./ckpts/Baseline_JSNScore_jsn_convnextv2_20260408235834 --data_path /path/to/jsn_scoring_data"
+    "Baseline_JSNScore_EfficientFormer::--score_type JSN --model EfficientFormer --checkpoint ./ckpts/Baseline_JSNScore_jsn_efficientformer_20260408193624 --data_path /path/to/jsn_scoring_data"
+    "Baseline_JSNScore_EfficientNetV2::--score_type JSN --model EfficientNetV2 --checkpoint ./ckpts/Baseline_JSNScore_jsn_efficientnetv2_20260409112019 --data_path /path/to/jsn_scoring_data"
+    "Baseline_JSNScore_LeViT::--score_type JSN --model LeViT --checkpoint ./ckpts/Baseline_JSNScore_jsn_levit_20260408210652 --data_path /path/to/jsn_scoring_data"
+    "Baseline_JSNScore_MambaVisionT::--score_type JSN --model MambaVisionT --checkpoint ./ckpts/Baseline_JSNScore_jsn_mambavisiont_20260409221059 --data_path /path/to/jsn_scoring_data"
+    "Baseline_JSNScore_MedMamba::--score_type JSN --model MedMamba --checkpoint ./ckpts/Baseline_JSNScore_jsn_medmamba_20260408161409 --data_path /path/to/jsn_scoring_data"
+    "Baseline_JSNScore_MobileViT::--score_type JSN --model MobileViT --checkpoint ./ckpts/Baseline_JSNScore_jsn_mobilevit_20260408222750 --data_path /path/to/jsn_scoring_data"
+    "Baseline_JSNScore_ResNet34::--score_type JSN --model ResNet34 --checkpoint ./ckpts/Baseline_JSNScore_jsn_resnet34_20260408140357 --data_path /path/to/jsn_scoring_data"
 
 )
 
