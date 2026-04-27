@@ -1,0 +1,33 @@
+[
+    {
+        "id": 1,
+        "type": "Vision Language Model (VLM)",
+        "function": "Make qualitative analysis",
+        "input": "The original joint patch image and text context from prior tools",
+        "output": "Qualitative visual evidence for bone erosion and a proposed SvdH BE score"
+    },
+    {
+        "id": 2,
+        "type": "metadata tool",
+        "function": "Extract patch metadata and anatomical site",
+        "input": "Original local joint patch image path",
+        "output": "JSON metadata including image name, site, size, mode and patch path",
+        "command": "extract_patch_metadata()"
+    },
+    {
+        "id": 3,
+        "type": "image statistics tool",
+        "function": "Compute simple patch intensity and contrast statistics",
+        "input": "Original local joint patch image",
+        "output": "JSON image statistics such as width, height, mean, standard deviation and intensity percentiles",
+        "command": "compute_patch_image_statistics()"
+    },
+    {
+        "id": 4,
+        "type": "scoring rule tool",
+        "function": "Provide SvdH bone erosion scoring rule context",
+        "input": "Patch metadata and image statistics",
+        "output": "JSON text context describing the SvdH BE 0-5 scoring options and exclusions",
+        "command": "build_svdh_scoring_context()"
+    }
+]

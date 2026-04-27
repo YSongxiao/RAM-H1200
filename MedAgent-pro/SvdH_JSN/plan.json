@@ -1,0 +1,38 @@
+[
+    {
+        "id": 1,
+        "tool": [2],
+        "action_type": "quantitative",
+        "action": "Extract patch metadata and anatomical site",
+        "input_type": [0],
+        "output_type": "intermediate result",
+        "output_path": "patch_metadata.json"
+    },
+    {
+        "id": 2,
+        "tool": [3],
+        "action_type": "quantitative",
+        "action": "Compute simple patch intensity and contrast statistics",
+        "input_type": [0],
+        "output_type": "intermediate result",
+        "output_path": "patch_statistics.json"
+    },
+    {
+        "id": 3,
+        "tool": [4],
+        "action_type": "quantitative",
+        "action": "Provide SvdH joint space narrowing scoring rule context",
+        "input_type": [1, 2],
+        "output_type": "intermediate result",
+        "output_path": "scoring_context.json"
+    },
+    {
+        "id": 4,
+        "tool": [1],
+        "action_type": "qualitative",
+        "action": "Inspect the joint patch for joint space narrowing only and propose an SvdH JSN score from 0 to 4. Ignore bone erosion, osteophytes, soft tissue swelling, and global disease activity. Return JSON with score and evidence.",
+        "input_type": [0, 1, 2, 3],
+        "output_type": "final indicator",
+        "output_path": "diagnosis.json"
+    }
+]

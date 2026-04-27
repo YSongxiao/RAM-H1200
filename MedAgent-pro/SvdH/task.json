@@ -1,0 +1,4 @@
+{
+    "input": "A local hand/wrist X-ray joint patch from RAM-H1200 SvdH_BE_Scoring, with the anatomical site name linked to the original image-level annotation.",
+    "disease": "Score bone erosion under the Sharp/van der Heijde (SvdH) bone erosion scoring system from 0 to 5."
+}
