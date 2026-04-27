@@ -17,7 +17,7 @@ from utils import (
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--dataset', type=str, default='medqa')
-parser.add_argument('--model', type=str, default='gpt-4o-mini')
+parser.add_argument('--model', type=str, default='gpt-4o')
 parser.add_argument('--difficulty', type=str, default='adaptive')
 parser.add_argument('--num_samples', type=int, default=100)
 parser.add_argument('--task', type=str, default='qa', choices=['qa', 'image_binary', 'svdh_be'])
