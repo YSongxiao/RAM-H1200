@@ -91,27 +91,9 @@ Testing:
 GPU_ID=0 DATA_PATH=/path/to/segmentation_data bash test_be_seg.sh
 ```
 
-### Scoring
+nnU-Net can also be used for BE segmentation.
 
-BE scoring:
-
-```bash
-GPU_ID=0 SCORE_TYPE=BE DATA_PATH=/path/to/be_scoring_data bash train_score_cls.sh
-GPU_ID=0 SCORE_TYPE=BE DATA_PATH=/path/to/be_scoring_data bash test_score_cls.sh
-```
-
-JSN scoring:
-
-```bash
-GPU_ID=0 SCORE_TYPE=JSN DATA_PATH=/path/to/jsn_scoring_data bash train_score_cls.sh
-GPU_ID=0 SCORE_TYPE=JSN DATA_PATH=/path/to/jsn_scoring_data bash test_score_cls.sh
-```
-
-## nnU-Net for BE Segmentation
-
-nnU-Net requires the BE segmentation dataset to be converted to the nnU-Net directory layout first.
-
-Step 1: convert the dataset:
+First convert the BE segmentation dataset to the nnU-Net directory layout:
 
 ```bash
 python convert_be_seg_to_nnunet.py
@@ -123,7 +105,7 @@ This script prepares the dataset under:
 models/nnUNet/DATASET/
 ```
 
-Step 2: follow the nnU-Net workflow inside `models/nnUNet`.
+Then continue with the nnU-Net workflow inside `models/nnUNet`.
 
 Typical next steps are:
 
@@ -166,19 +148,27 @@ nnUNetv2_predict \
     -tr nnUNetTrainerBE
 ```
 
-The nnU-Net codebase used by this repository is located in:
-
-```text
-models/nnUNet
-```
-
 If you want to use the provided repository-level evaluation entry for BE segmentation inference, you can run:
 
 ```bash
 bash test_be_seg_nnunet.sh
 ```
 
-If you want the full native nnU-Net pipeline, continue from `models/nnUNet` after conversion and use the commands and documentation there.
+### Scoring
+
+BE scoring:
+
+```bash
+GPU_ID=0 SCORE_TYPE=BE DATA_PATH=/path/to/be_scoring_data bash train_score_cls.sh
+GPU_ID=0 SCORE_TYPE=BE DATA_PATH=/path/to/be_scoring_data bash test_score_cls.sh
+```
+
+JSN scoring:
+
+```bash
+GPU_ID=0 SCORE_TYPE=JSN DATA_PATH=/path/to/jsn_scoring_data bash train_score_cls.sh
+GPU_ID=0 SCORE_TYPE=JSN DATA_PATH=/path/to/jsn_scoring_data bash test_score_cls.sh
+```
 
 ## Notes
 
