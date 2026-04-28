@@ -154,6 +154,49 @@ bash test_be_seg_nnunet.sh
 
 ### Scoring
 
+The scoring task uses joint ROI `.bmp` files together with JSON score keys. The mapping used in the code is listed below.
+
+#### BE joint mapping
+
+| ROI file stem | JSON score key | Display name |
+| --- | --- | --- |
+| `R` | `BE_R` | `Radius` |
+| `U` | `BE_U` | `Ulna` |
+| `IP` | `BE_IP` | `IP` |
+| `L` | `BE_L` | `Lunate` |
+| `MCP-T` | `BE_MCP-T` | `MCP1` |
+| `MCP-I` | `BE_MCP-I` | `MCP2` |
+| `MCP-M` | `BE_MCP-M` | `MCP3` |
+| `MCP-R` | `BE_MCP-R` | `MCP4` |
+| `MCP-S` | `BE_MCP-S` | `MCP5` |
+| `CMC-T` | `BE_CMC-T` | `CMC1` |
+| `PIP-I` | `BE_PIP-I` | `PIP2` |
+| `PIP-M` | `BE_PIP-M` | `PIP3` |
+| `PIP-R` | `BE_PIP-R` | `PIP4` |
+| `PIP-S` | `BE_PIP-S` | `PIP5` |
+| `S` | `BE_S` | `Scaphoid` |
+| `Tm` | `BE_Tm` | `Trapezium` |
+
+#### JSN joint mapping
+
+| ROI file stem | JSON score key | Display name |
+| --- | --- | --- |
+| `MCP-T` | `JSN_MCP-T` | `MCP1` |
+| `MCP-I` | `JSN_MCP-I` | `MCP2` |
+| `MCP-M` | `JSN_MCP-M` | `MCP3` |
+| `MCP-R` | `JSN_MCP-R` | `MCP4` |
+| `MCP-S` | `JSN_MCP-S` | `MCP5` |
+| `PIP-I` | `JSN_PIP-I` | `PIP2` |
+| `PIP-M` | `JSN_PIP-M` | `PIP3` |
+| `PIP-R` | `JSN_PIP-R` | `PIP4` |
+| `PIP-S` | `JSN_PIP-S` | `PIP5` |
+| `CMC-M` | `JSN_CMC-M` | `CMC-M` |
+| `CMC-R` | `JSN_CMC-R` | `CMC-R` |
+| `CMC-S` | `JSN_CMC-S` | `CMC-S` |
+| `SC` | `JSN_SC` | `SC` |
+| `SR` | `JSN_SR` | `SR` |
+| `STT` | `JSN_STT` | `STT` |
+
 BE scoring:
 
 ```bash
