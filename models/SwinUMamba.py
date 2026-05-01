@@ -1,3 +1,11 @@
+import sys
+from pathlib import Path
+
+_MODELS_ROOT = Path(__file__).resolve().parent
+if str(_MODELS_ROOT) not in sys.path:
+    sys.path.insert(0, str(_MODELS_ROOT))
+
+
 import torch
 
 from nnunetv2.nets.SwinUMamba import SwinUMamba, GatedSwinUMamba, DualPathMergerSwinUMamba, load_pretrained_ckpt

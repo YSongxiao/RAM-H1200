@@ -1,3 +1,10 @@
+import sys
+from pathlib import Path
+
+_MODELS_ROOT = Path(__file__).resolve().parent
+if str(_MODELS_ROOT) not in sys.path:
+    sys.path.insert(0, str(_MODELS_ROOT))
+
 from nnunetv2.nets.UMambaBot import get_umamba_bot_from_plans
 from batchgenerators.utilities.file_and_folder_operations import join, isfile, load_json
 from nnunetv2.nets.UMambaBot import UMambaBot

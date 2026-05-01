@@ -16,9 +16,22 @@ from mamba_ssm.ops.selective_scan_interface import selective_scan_fn, selective_
 DropPath.__repr__ = lambda self: f"timm.DropPath({self.drop_prob})"
 
 from nnunetv2.utilities.plans_handling.plans_handler import ConfigurationManager, PlansManager
-from monai.networks.blocks.dynunet_block import UnetOutBlock
+from monai.networks.blocks.dynunet_block import UnetOutBlock, UnetResBlock, UnetBasicBlock
 from monai.networks.blocks.unetr_block import UnetrBasicBlock, UnetrUpBlock
+from models.UnetPlusPlus import UnetPlusPlus
 
+
+def _build_output_heads(spatial_dims, feat_size, out_chans, deep_supervision):
+    """Instantiate only the heads that are actually used."""
+    num_heads = 4 if deep_supervision else 1
+    return nn.ModuleList(
+        UnetOutBlock(
+            spatial_dims=spatial_dims,
+            in_channels=feat_size[i],
+            out_channels=out_chans,
+        )
+        for i in range(num_heads)
+    )
 
 
 class PatchEmbed2D(nn.Module):
@@ -472,7 +485,7 @@ class SwinUMamba(nn.Module):
               nn.InstanceNorm2d(feat_size[0], eps=1e-5, affine=True),
         )
         self.spatial_dims = spatial_dims
-        self.vssm_encoder = VSSMEncoder(patch_size=2, in_chans=feat_size[0])
+        self.vssm_encoder = VSSMEncoder(patch_size=2, in_chans=feat_size[0], dims=feat_size[1:])
         self.encoder1 = UnetrBasicBlock(
             spatial_dims=spatial_dims,
             in_channels=self.in_chans,
@@ -578,13 +591,7 @@ class SwinUMamba(nn.Module):
 
         # deep supervision support
         self.deep_supervision = deep_supervision
-        self.out_layers = nn.ModuleList()
-        for i in range(4):
-            self.out_layers.append(UnetOutBlock(
-                spatial_dims=spatial_dims, 
-                in_channels=self.feat_size[i], 
-                out_channels=self.out_chans
-            ))
+        self.out_layers = _build_output_heads(spatial_dims, self.feat_size, self.out_chans, self.deep_supervision)
 
     def forward(self, x_in):
         x1 = self.stem(x_in)
@@ -612,6 +619,1320 @@ class SwinUMamba(nn.Module):
             out = self.out_layers[0](dec_out)
 
         return out
+
+    @torch.no_grad()
+    def freeze_encoder(self):
+        for name, param in self.vssm_encoder.named_parameters():
+            if "patch_embed" not in name:
+                param.requires_grad = False
+
+    @torch.no_grad()
+    def unfreeze_encoder(self):
+        for param in self.vssm_encoder.parameters():
+            param.requires_grad = True
+
+
+class ScalarGateBlock(nn.Module):
+    def __init__(self, enc_chans, prior_chans, out_chans):
+        super().__init__()
+        self.gate = nn.Conv2d(in_channels=enc_chans+prior_chans, out_channels=enc_chans+prior_chans, kernel_size=3, stride=1, padding=1)
+        self.proj = nn.Conv2d(in_channels=enc_chans+prior_chans, out_channels=out_chans, kernel_size=1, stride=1)
+
+    def forward(self, enc, prior):
+        """
+        enc:   (B, enc_chans, H, W)
+        prior: (B, prior_chans, H, W)
+        """
+
+        # 1. concat image + prior
+        x = torch.cat([enc, prior], dim=1)  # (B, enc+prior, H, W)
+
+        # 2. compute gate logits
+        g = self.gate(x)  # (B, enc+prior, H, W)
+
+        # 3. collapse to scalar gate
+        #    keep scalar semantics: one gate per spatial location
+        g = g.mean(dim=1, keepdim=True)  # (B, 1, H, W)
+        g = torch.sigmoid(g)
+
+        # 4. project prior to enc channel space
+        p_proj = self.proj(x)  # (B, out_chans, H, W)
+
+        # 5. gated residual fusion
+        out = enc + g * p_proj
+
+        return out
+
+
+class GatedSwinUMamba(nn.Module):
+    def __init__(
+        self,
+        in_chans=1,
+        prior_chans=2,
+        out_chans=13,
+        feat_size=[48, 96, 192, 384, 768],
+        drop_path_rate=0,
+        layer_scale_init_value=1e-6,
+        hidden_size: int = 768,
+        norm_name = "instance",
+        res_block: bool = True,
+        spatial_dims=2,
+        deep_supervision: bool = False,
+    ) -> None:
+        super().__init__()
+
+        self.hidden_size = hidden_size
+        self.in_chans = in_chans
+        self.prior_chans = prior_chans
+        self.out_chans = out_chans
+        self.drop_path_rate = drop_path_rate
+        self.feat_size = feat_size
+        self.layer_scale_init_value = layer_scale_init_value
+
+        self.stem = nn.Sequential(
+              nn.Conv2d(in_chans, feat_size[0], kernel_size=7, stride=2, padding=3),
+              nn.InstanceNorm2d(feat_size[0], eps=1e-5, affine=True),
+        )
+        self.spatial_dims = spatial_dims
+        self.vssm_encoder = VSSMEncoder(patch_size=2, in_chans=feat_size[0], dims=feat_size[1:])
+        self.encoder1 = UnetrBasicBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.in_chans,
+            out_channels=self.feat_size[0],
+            kernel_size=3,
+            stride=1,
+            norm_name=norm_name,
+            res_block=res_block,
+        )
+        self.encoder2 = UnetrBasicBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.feat_size[0],
+            out_channels=self.feat_size[1],
+            kernel_size=3,
+            stride=1,
+            norm_name=norm_name,
+            res_block=res_block,
+        )
+        self.encoder3 = UnetrBasicBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.feat_size[1],
+            out_channels=self.feat_size[2],
+            kernel_size=3,
+            stride=1,
+            norm_name=norm_name,
+            res_block=res_block,
+        )
+        self.encoder4 = UnetrBasicBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.feat_size[2],
+            out_channels=self.feat_size[3],
+            kernel_size=3,
+            stride=1,
+            norm_name=norm_name,
+            res_block=res_block,
+        )
+
+        self.encoder5 = UnetrBasicBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.feat_size[3],
+            out_channels=self.feat_size[4],
+            kernel_size=3,
+            stride=1,
+            norm_name=norm_name,
+            res_block=res_block,
+        )
+
+        self.prior_encoder1 = UnetResBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.prior_chans,
+            out_channels=self.feat_size[0] // 2,
+            kernel_size=3,
+            stride=1,
+            norm_name=norm_name
+        )
+
+        self.gate1 = ScalarGateBlock(
+            enc_chans=self.feat_size[0],
+            prior_chans=self.feat_size[0] // 2,
+            out_chans=self.feat_size[0]
+        )
+
+        self.prior_encoder2 = UnetResBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.feat_size[0] // 2,
+            out_channels=self.feat_size[1] // 2,
+            kernel_size=3,
+            stride=2,
+            norm_name=norm_name
+        )
+
+        self.gate2 = ScalarGateBlock(
+            enc_chans=self.feat_size[1],
+            prior_chans=self.feat_size[1] // 2,
+            out_chans=self.feat_size[1]
+        )
+
+        self.prior_encoder3 = UnetResBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.feat_size[1] // 2,
+            out_channels=self.feat_size[2] // 2,
+            kernel_size=3,
+            stride=2,
+            norm_name=norm_name
+        )
+
+        self.gate3 = ScalarGateBlock(
+            enc_chans=self.feat_size[2],
+            prior_chans=self.feat_size[2] // 2,
+            out_chans=self.feat_size[2]
+        )
+
+        self.prior_encoder4 = UnetResBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.feat_size[2] // 2,
+            out_channels=self.feat_size[3] // 2,
+            kernel_size=3,
+            stride=2,
+            norm_name=norm_name
+        )
+
+        self.gate4 = ScalarGateBlock(
+            enc_chans=self.feat_size[3],
+            prior_chans=self.feat_size[3] // 2,
+            out_chans=self.feat_size[3]
+        )
+
+        self.prior_encoder5 = UnetResBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.feat_size[3] // 2,
+            out_channels=self.feat_size[4] // 2,
+            kernel_size=3,
+            stride=2,
+            norm_name=norm_name
+        )
+
+        self.gate5 = ScalarGateBlock(
+            enc_chans=self.feat_size[4],
+            prior_chans=self.feat_size[4] // 2,
+            out_chans=self.feat_size[4]
+        )
+
+        self.decoder6 = UnetrUpBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.hidden_size,
+            out_channels=self.feat_size[4],
+            kernel_size=3,
+            upsample_kernel_size=2,
+            norm_name=norm_name,
+            res_block=res_block,
+        )
+
+        self.decoder5 = UnetrUpBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.hidden_size,
+            out_channels=self.feat_size[3],
+            kernel_size=3,
+            upsample_kernel_size=2,
+            norm_name=norm_name,
+            res_block=res_block,
+        )
+        self.decoder4 = UnetrUpBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.feat_size[3],
+            out_channels=self.feat_size[2],
+            kernel_size=3,
+            upsample_kernel_size=2,
+            norm_name=norm_name,
+            res_block=res_block,
+        )
+        self.decoder3 = UnetrUpBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.feat_size[2],
+            out_channels=self.feat_size[1],
+            kernel_size=3,
+            upsample_kernel_size=2,
+            norm_name=norm_name,
+            res_block=res_block,
+        )
+        self.decoder2 = UnetrUpBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.feat_size[1],
+            out_channels=self.feat_size[0],
+            kernel_size=3,
+            upsample_kernel_size=2,
+            norm_name=norm_name,
+            res_block=res_block,
+        )
+        self.decoder1 = UnetrBasicBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.feat_size[0],
+            out_channels=self.feat_size[0],
+            kernel_size=3,
+            stride=1,
+            norm_name=norm_name,
+            res_block=res_block,
+        )
+
+        # deep supervision support
+        self.deep_supervision = deep_supervision
+        self.out_layers = _build_output_heads(spatial_dims, self.feat_size, self.out_chans, self.deep_supervision)
+
+    def forward(self, x):
+        x_in = x[:, 0:1, ...]
+        p_in = x[:, 1:, ...]
+        x1 = self.stem(x_in)
+        vss_outs = self.vssm_encoder(x1)
+        enc1 = self.encoder1(x_in)
+        enc2 = self.encoder2(vss_outs[0])
+        enc3 = self.encoder3(vss_outs[1])
+        enc4 = self.encoder4(vss_outs[2])
+        enc5 = self.encoder5(vss_outs[3])
+        p_enc1 = self.prior_encoder1(p_in)
+        p_enc2 = self.prior_encoder2(p_enc1)
+        p_enc3 = self.prior_encoder3(p_enc2)
+        p_enc4 = self.prior_encoder4(p_enc3)
+        p_enc5 = self.prior_encoder5(p_enc4)
+        enc1 = self.gate1(enc1, p_enc1)
+        enc2 = self.gate2(enc2, p_enc2)
+        enc3 = self.gate3(enc3, p_enc3)
+        enc4 = self.gate4(enc4, p_enc4)
+        enc5 = self.gate5(enc5, p_enc5)
+        enc_hidden = vss_outs[4]
+        dec4 = self.decoder6(enc_hidden, enc5)
+        dec3 = self.decoder5(dec4, enc4)
+        dec2 = self.decoder4(dec3, enc3)
+        dec1 = self.decoder3(dec2, enc2)
+        dec0 = self.decoder2(dec1, enc1)
+        dec_out = self.decoder1(dec0)
+
+        if self.deep_supervision:
+            feat_out = [dec_out, dec1, dec2, dec3]
+            out = []
+            for i in range(4):
+                pred = self.out_layers[i](feat_out[i])
+                out.append(pred)
+        else:
+            out = self.out_layers[0](dec_out)
+
+        return out
+
+    @torch.no_grad()
+    def freeze_encoder(self):
+        for name, param in self.vssm_encoder.named_parameters():
+            if "patch_embed" not in name:
+                param.requires_grad = False
+
+    @torch.no_grad()
+    def unfreeze_encoder(self):
+        for param in self.vssm_encoder.parameters():
+            param.requires_grad = True
+
+
+class DualPathSwinUMamba(nn.Module):
+    def __init__(
+        self,
+        in_chans=1,
+        out_chans=13,
+        overlap_out_chans=13,
+        feat_size=[48, 96, 192, 384, 768],
+        drop_path_rate=0,
+        layer_scale_init_value=1e-6,
+        hidden_size: int = 768,
+        norm_name = "instance",
+        res_block: bool = True,
+        spatial_dims=2,
+        deep_supervision: bool = False,
+    ) -> None:
+        super().__init__()
+
+        self.hidden_size = hidden_size
+        self.in_chans = in_chans
+        self.out_chans = out_chans
+        self.overlap_out_chans = overlap_out_chans
+        self.drop_path_rate = drop_path_rate
+        self.feat_size = feat_size
+        self.layer_scale_init_value = layer_scale_init_value
+
+        self.stem = nn.Sequential(
+              nn.Conv2d(in_chans, feat_size[0], kernel_size=7, stride=2, padding=3),
+              nn.InstanceNorm2d(feat_size[0], eps=1e-5, affine=True),
+        )
+        self.spatial_dims = spatial_dims
+        self.vssm_encoder = VSSMEncoder(patch_size=2, in_chans=feat_size[0], dims=feat_size[1:])
+        self.encoder1 = UnetrBasicBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.in_chans,
+            out_channels=self.feat_size[0],
+            kernel_size=3,
+            stride=1,
+            norm_name=norm_name,
+            res_block=res_block,
+        )
+        self.encoder2 = UnetrBasicBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.feat_size[0],
+            out_channels=self.feat_size[1],
+            kernel_size=3,
+            stride=1,
+            norm_name=norm_name,
+            res_block=res_block,
+        )
+        self.encoder3 = UnetrBasicBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.feat_size[1],
+            out_channels=self.feat_size[2],
+            kernel_size=3,
+            stride=1,
+            norm_name=norm_name,
+            res_block=res_block,
+        )
+        self.encoder4 = UnetrBasicBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.feat_size[2],
+            out_channels=self.feat_size[3],
+            kernel_size=3,
+            stride=1,
+            norm_name=norm_name,
+            res_block=res_block,
+        )
+
+        self.encoder5 = UnetrBasicBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.feat_size[3],
+            out_channels=self.feat_size[4],
+            kernel_size=3,
+            stride=1,
+            norm_name=norm_name,
+            res_block=res_block,
+        )
+
+        self.decoder6 = UnetrUpBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.hidden_size,
+            out_channels=self.feat_size[4],
+            kernel_size=3,
+            upsample_kernel_size=2,
+            norm_name=norm_name,
+            res_block=res_block,
+        )
+
+        self.decoder5 = UnetrUpBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.hidden_size,
+            out_channels=self.feat_size[3],
+            kernel_size=3,
+            upsample_kernel_size=2,
+            norm_name=norm_name,
+            res_block=res_block,
+        )
+        self.decoder4 = UnetrUpBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.feat_size[3],
+            out_channels=self.feat_size[2],
+            kernel_size=3,
+            upsample_kernel_size=2,
+            norm_name=norm_name,
+            res_block=res_block,
+        )
+        self.decoder3 = UnetrUpBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.feat_size[2],
+            out_channels=self.feat_size[1],
+            kernel_size=3,
+            upsample_kernel_size=2,
+            norm_name=norm_name,
+            res_block=res_block,
+        )
+        self.decoder2 = UnetrUpBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.feat_size[1],
+            out_channels=self.feat_size[0],
+            kernel_size=3,
+            upsample_kernel_size=2,
+            norm_name=norm_name,
+            res_block=res_block,
+        )
+        self.decoder1 = UnetrBasicBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.feat_size[0],
+            out_channels=self.feat_size[0],
+            kernel_size=3,
+            stride=1,
+            norm_name=norm_name,
+            res_block=res_block,
+        )
+
+        self.decoder6_1 = UnetrUpBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.hidden_size,
+            out_channels=self.feat_size[4],
+            kernel_size=3,
+            upsample_kernel_size=2,
+            norm_name=norm_name,
+            res_block=res_block,
+        )
+
+        self.decoder5_1 = UnetrUpBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.hidden_size,
+            out_channels=self.feat_size[3],
+            kernel_size=3,
+            upsample_kernel_size=2,
+            norm_name=norm_name,
+            res_block=res_block,
+        )
+        self.decoder4_1 = UnetrUpBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.feat_size[3],
+            out_channels=self.feat_size[2],
+            kernel_size=3,
+            upsample_kernel_size=2,
+            norm_name=norm_name,
+            res_block=res_block,
+        )
+        self.decoder3_1 = UnetrUpBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.feat_size[2],
+            out_channels=self.feat_size[1],
+            kernel_size=3,
+            upsample_kernel_size=2,
+            norm_name=norm_name,
+            res_block=res_block,
+        )
+        self.decoder2_1 = UnetrUpBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.feat_size[1],
+            out_channels=self.feat_size[0],
+            kernel_size=3,
+            upsample_kernel_size=2,
+            norm_name=norm_name,
+            res_block=res_block,
+        )
+        self.decoder1_1 = UnetrBasicBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.feat_size[0],
+            out_channels=self.feat_size[0],
+            kernel_size=3,
+            stride=1,
+            norm_name=norm_name,
+            res_block=res_block,
+        )
+
+
+        # deep supervision support
+        self.deep_supervision = deep_supervision
+        self.out_layers = _build_output_heads(spatial_dims, self.feat_size, self.out_chans, self.deep_supervision)
+        self.out_layers_1 = _build_output_heads(spatial_dims, self.feat_size, self.overlap_out_chans, self.deep_supervision)
+
+    def forward(self, x_in):
+        x1 = self.stem(x_in)
+        vss_outs = self.vssm_encoder(x1)
+        enc1 = self.encoder1(x_in)
+        enc2 = self.encoder2(vss_outs[0])
+        enc3 = self.encoder3(vss_outs[1])
+        enc4 = self.encoder4(vss_outs[2])
+        enc5 = self.encoder5(vss_outs[3])
+        enc_hidden = vss_outs[4]
+        print(enc_hidden.shape)
+        dec4 = self.decoder6(enc_hidden, enc5)
+        dec3 = self.decoder5(dec4, enc4)
+        dec2 = self.decoder4(dec3, enc3)
+        dec1 = self.decoder3(dec2, enc2)
+        dec0 = self.decoder2(dec1, enc1)
+        dec_out = self.decoder1(dec0)
+
+        dec4_1 = self.decoder6_1(enc_hidden, enc5)
+        dec3_1 = self.decoder5_1(dec4_1, enc4)
+        dec2_1 = self.decoder4_1(dec3_1, enc3)
+        dec1_1 = self.decoder3_1(dec2_1, enc2)
+        dec0_1 = self.decoder2_1(dec1_1, enc1)
+        dec_out_1 = self.decoder1_1(dec0_1)
+
+        if self.deep_supervision:
+            feat_out = [dec_out, dec1, dec2, dec3]
+            out = []
+            for i in range(4):
+                pred = self.out_layers[i](feat_out[i])
+                out.append(pred)
+        else:
+            out = self.out_layers[0](dec_out)
+            out_1 = self.out_layers_1[0](dec_out_1)
+            out = torch.concat([out, out_1], dim=1)
+
+        return out
+
+    @torch.no_grad()
+    def freeze_encoder(self):
+        for name, param in self.vssm_encoder.named_parameters():
+            if "patch_embed" not in name:
+                param.requires_grad = False
+
+    @torch.no_grad()
+    def unfreeze_encoder(self):
+        for param in self.vssm_encoder.parameters():
+            param.requires_grad = True
+
+
+class DualPathMergerSwinUMamba(nn.Module):
+    def __init__(
+        self,
+        in_chans=1,
+        out_chans=13,
+        overlap_out_chans=13,
+        feat_size=[48, 96, 192, 384, 768],
+        drop_path_rate=0,
+        layer_scale_init_value=1e-6,
+        hidden_size: int = 768,
+        norm_name = "instance",
+        res_block: bool = True,
+        spatial_dims=2,
+        deep_supervision: bool = False,
+    ) -> None:
+        super().__init__()
+
+        self.hidden_size = hidden_size
+        self.in_chans = in_chans
+        self.out_chans = out_chans
+        self.overlap_out_chans = overlap_out_chans
+        self.drop_path_rate = drop_path_rate
+        self.feat_size = feat_size
+        self.layer_scale_init_value = layer_scale_init_value
+
+        self.stem = nn.Sequential(
+              nn.Conv2d(in_chans, feat_size[0], kernel_size=7, stride=2, padding=3),
+              nn.InstanceNorm2d(feat_size[0], eps=1e-5, affine=True),
+        )
+        self.spatial_dims = spatial_dims
+        self.vssm_encoder = VSSMEncoder(patch_size=2, in_chans=feat_size[0], dims=feat_size[1:])
+        self.encoder1 = UnetrBasicBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.in_chans,
+            out_channels=self.feat_size[0],
+            kernel_size=3,
+            stride=1,
+            norm_name=norm_name,
+            res_block=res_block,
+        )
+        self.encoder2 = UnetrBasicBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.feat_size[0],
+            out_channels=self.feat_size[1],
+            kernel_size=3,
+            stride=1,
+            norm_name=norm_name,
+            res_block=res_block,
+        )
+        self.encoder3 = UnetrBasicBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.feat_size[1],
+            out_channels=self.feat_size[2],
+            kernel_size=3,
+            stride=1,
+            norm_name=norm_name,
+            res_block=res_block,
+        )
+        self.encoder4 = UnetrBasicBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.feat_size[2],
+            out_channels=self.feat_size[3],
+            kernel_size=3,
+            stride=1,
+            norm_name=norm_name,
+            res_block=res_block,
+        )
+
+        self.encoder5 = UnetrBasicBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.feat_size[3],
+            out_channels=self.feat_size[4],
+            kernel_size=3,
+            stride=1,
+            norm_name=norm_name,
+            res_block=res_block,
+        )
+
+        self.decoder6 = UnetrUpBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.hidden_size,
+            out_channels=self.feat_size[4],
+            kernel_size=3,
+            upsample_kernel_size=2,
+            norm_name=norm_name,
+            res_block=res_block,
+        )
+
+        self.decoder5 = UnetrUpBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.hidden_size,
+            out_channels=self.feat_size[3],
+            kernel_size=3,
+            upsample_kernel_size=2,
+            norm_name=norm_name,
+            res_block=res_block,
+        )
+        self.decoder4 = UnetrUpBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.feat_size[3],
+            out_channels=self.feat_size[2],
+            kernel_size=3,
+            upsample_kernel_size=2,
+            norm_name=norm_name,
+            res_block=res_block,
+        )
+        self.decoder3 = UnetrUpBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.feat_size[2],
+            out_channels=self.feat_size[1],
+            kernel_size=3,
+            upsample_kernel_size=2,
+            norm_name=norm_name,
+            res_block=res_block,
+        )
+        self.decoder2 = UnetrUpBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.feat_size[1],
+            out_channels=self.feat_size[0],
+            kernel_size=3,
+            upsample_kernel_size=2,
+            norm_name=norm_name,
+            res_block=res_block,
+        )
+        self.decoder1 = UnetrBasicBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.feat_size[0],
+            out_channels=self.feat_size[0],
+            kernel_size=3,
+            stride=1,
+            norm_name=norm_name,
+            res_block=res_block,
+        )
+
+        self.decoder6_1 = UnetrUpBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.hidden_size,
+            out_channels=self.feat_size[4],
+            kernel_size=3,
+            upsample_kernel_size=2,
+            norm_name=norm_name,
+            res_block=res_block,
+        )
+
+        self.decoder5_1 = UnetrUpBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.hidden_size,
+            out_channels=self.feat_size[3],
+            kernel_size=3,
+            upsample_kernel_size=2,
+            norm_name=norm_name,
+            res_block=res_block,
+        )
+        self.decoder4_1 = UnetrUpBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.feat_size[3],
+            out_channels=self.feat_size[2],
+            kernel_size=3,
+            upsample_kernel_size=2,
+            norm_name=norm_name,
+            res_block=res_block,
+        )
+        self.decoder3_1 = UnetrUpBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.feat_size[2],
+            out_channels=self.feat_size[1],
+            kernel_size=3,
+            upsample_kernel_size=2,
+            norm_name=norm_name,
+            res_block=res_block,
+        )
+        self.decoder2_1 = UnetrUpBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.feat_size[1],
+            out_channels=self.feat_size[0],
+            kernel_size=3,
+            upsample_kernel_size=2,
+            norm_name=norm_name,
+            res_block=res_block,
+        )
+        self.decoder1_1 = UnetrBasicBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.feat_size[0],
+            out_channels=self.feat_size[0],
+            kernel_size=3,
+            stride=1,
+            norm_name=norm_name,
+            res_block=res_block,
+        )
+
+
+        # deep supervision support
+        self.deep_supervision = deep_supervision
+        self.out_layers = _build_output_heads(spatial_dims, self.feat_size, self.out_chans, self.deep_supervision)
+        self.out_layers_1 = _build_output_heads(spatial_dims, self.feat_size, self.overlap_out_chans, self.deep_supervision)
+
+        self.merger = UnetPlusPlus(spatial_dims=2, in_channels=in_chans+out_chans+overlap_out_chans, out_channels=out_chans, features=(32, 32, 64, 128, 256, 32))
+        # self.merger = SwinUMamba(spatial_dims=2, in_chans=in_chans + out_chans*2, out_chans=out_chans)
+
+    def forward(self, x_in):
+        x1 = self.stem(x_in)
+        vss_outs = self.vssm_encoder(x1)
+        enc1 = self.encoder1(x_in)
+        enc2 = self.encoder2(vss_outs[0])
+        enc3 = self.encoder3(vss_outs[1])
+        enc4 = self.encoder4(vss_outs[2])
+        enc5 = self.encoder5(vss_outs[3])
+        enc_hidden = vss_outs[4]
+        dec4 = self.decoder6(enc_hidden, enc5)
+        dec3 = self.decoder5(dec4, enc4)
+        dec2 = self.decoder4(dec3, enc3)
+        dec1 = self.decoder3(dec2, enc2)
+        dec0 = self.decoder2(dec1, enc1)
+        dec_out = self.decoder1(dec0)
+
+        dec4_1 = self.decoder6_1(enc_hidden, enc5)
+        dec3_1 = self.decoder5_1(dec4_1, enc4)
+        dec2_1 = self.decoder4_1(dec3_1, enc3)
+        dec1_1 = self.decoder3_1(dec2_1, enc2)
+        dec0_1 = self.decoder2_1(dec1_1, enc1)
+        dec_out_1 = self.decoder1_1(dec0_1)
+
+        if self.deep_supervision:
+            feat_out = [dec_out, dec1, dec2, dec3]
+            out = []
+            for i in range(4):
+                pred = self.out_layers[i](feat_out[i])
+                out.append(pred)
+        else:
+            coarse_overall = self.out_layers[0](dec_out)
+            overlap = self.out_layers_1[0](dec_out_1)
+            out_1 = torch.concat([coarse_overall, overlap], dim=1)
+            # out = torch.concat([out, out_1], dim=1)
+            delta_overall = self.merger(torch.concat([x_in, coarse_overall, overlap], dim=1))
+            refined_overall = coarse_overall + delta_overall
+
+        return out_1, refined_overall
+
+    @torch.no_grad()
+    def freeze_encoder(self):
+        for name, param in self.vssm_encoder.named_parameters():
+            if "patch_embed" not in name:
+                param.requires_grad = False
+
+    @torch.no_grad()
+    def unfreeze_encoder(self):
+        for param in self.vssm_encoder.parameters():
+            param.requires_grad = True
+
+    @torch.no_grad()
+    def freeze_all_but_merger(self) -> None:
+        """Freeze every parameter except those in ``self.merger``.
+
+        After calling this method, only the weights/biases inside the
+        ``merger`` head remain trainable. これにより、ファインチューニング
+        時は merger だけを効率的に更新できます。
+        """
+        for name, param in self.named_parameters():
+            # 「merger.」で始まるパラメータ名だけ学習を許可する
+            keep_trainable = name.startswith("merger.") or "patch_embed" in name
+            param.requires_grad = keep_trainable
+
+
+class TriplePathMergerSwinUMamba(nn.Module):
+    def __init__(
+        self,
+        in_chans=1,
+        out_chans=13,
+        overlap_out_chans=13,
+        overlap_sm_out_chans=1,
+        feat_size=[48, 96, 192, 384, 768],
+        drop_path_rate=0,
+        layer_scale_init_value=1e-6,
+        hidden_size: int = 768,
+        norm_name = "instance",
+        res_block: bool = True,
+        spatial_dims=2,
+        deep_supervision: bool = False,
+    ) -> None:
+        super().__init__()
+
+        self.hidden_size = hidden_size
+        self.in_chans = in_chans
+        self.out_chans = out_chans
+        self.overlap_out_chans = overlap_out_chans
+        self.overlap_sm_out_chans = overlap_sm_out_chans
+        self.drop_path_rate = drop_path_rate
+        self.feat_size = feat_size
+        self.layer_scale_init_value = layer_scale_init_value
+
+        self.stem = nn.Sequential(
+              nn.Conv2d(in_chans, feat_size[0], kernel_size=7, stride=2, padding=3),
+              nn.InstanceNorm2d(feat_size[0], eps=1e-5, affine=True),
+        )
+        self.spatial_dims = spatial_dims
+        self.vssm_encoder = VSSMEncoder(patch_size=2, in_chans=feat_size[0], dims=feat_size[1:])
+        self.encoder1 = UnetrBasicBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.in_chans,
+            out_channels=self.feat_size[0],
+            kernel_size=3,
+            stride=1,
+            norm_name=norm_name,
+            res_block=res_block,
+        )
+        self.encoder2 = UnetrBasicBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.feat_size[0],
+            out_channels=self.feat_size[1],
+            kernel_size=3,
+            stride=1,
+            norm_name=norm_name,
+            res_block=res_block,
+        )
+        self.encoder3 = UnetrBasicBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.feat_size[1],
+            out_channels=self.feat_size[2],
+            kernel_size=3,
+            stride=1,
+            norm_name=norm_name,
+            res_block=res_block,
+        )
+        self.encoder4 = UnetrBasicBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.feat_size[2],
+            out_channels=self.feat_size[3],
+            kernel_size=3,
+            stride=1,
+            norm_name=norm_name,
+            res_block=res_block,
+        )
+
+        self.encoder5 = UnetrBasicBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.feat_size[3],
+            out_channels=self.feat_size[4],
+            kernel_size=3,
+            stride=1,
+            norm_name=norm_name,
+            res_block=res_block,
+        )
+
+        self.decoder6 = UnetrUpBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.hidden_size,
+            out_channels=self.feat_size[4],
+            kernel_size=3,
+            upsample_kernel_size=2,
+            norm_name=norm_name,
+            res_block=res_block,
+        )
+
+        self.decoder5 = UnetrUpBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.hidden_size,
+            out_channels=self.feat_size[3],
+            kernel_size=3,
+            upsample_kernel_size=2,
+            norm_name=norm_name,
+            res_block=res_block,
+        )
+        self.decoder4 = UnetrUpBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.feat_size[3],
+            out_channels=self.feat_size[2],
+            kernel_size=3,
+            upsample_kernel_size=2,
+            norm_name=norm_name,
+            res_block=res_block,
+        )
+        self.decoder3 = UnetrUpBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.feat_size[2],
+            out_channels=self.feat_size[1],
+            kernel_size=3,
+            upsample_kernel_size=2,
+            norm_name=norm_name,
+            res_block=res_block,
+        )
+        self.decoder2 = UnetrUpBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.feat_size[1],
+            out_channels=self.feat_size[0],
+            kernel_size=3,
+            upsample_kernel_size=2,
+            norm_name=norm_name,
+            res_block=res_block,
+        )
+        self.decoder1 = UnetrBasicBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.feat_size[0],
+            out_channels=self.feat_size[0],
+            kernel_size=3,
+            stride=1,
+            norm_name=norm_name,
+            res_block=res_block,
+        )
+
+        self.decoder6_1 = UnetrUpBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.hidden_size,
+            out_channels=self.feat_size[4],
+            kernel_size=3,
+            upsample_kernel_size=2,
+            norm_name=norm_name,
+            res_block=res_block,
+        )
+
+        self.decoder5_1 = UnetrUpBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.hidden_size,
+            out_channels=self.feat_size[3],
+            kernel_size=3,
+            upsample_kernel_size=2,
+            norm_name=norm_name,
+            res_block=res_block,
+        )
+        self.decoder4_1 = UnetrUpBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.feat_size[3],
+            out_channels=self.feat_size[2],
+            kernel_size=3,
+            upsample_kernel_size=2,
+            norm_name=norm_name,
+            res_block=res_block,
+        )
+        self.decoder3_1 = UnetrUpBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.feat_size[2],
+            out_channels=self.feat_size[1],
+            kernel_size=3,
+            upsample_kernel_size=2,
+            norm_name=norm_name,
+            res_block=res_block,
+        )
+        self.decoder2_1 = UnetrUpBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.feat_size[1],
+            out_channels=self.feat_size[0],
+            kernel_size=3,
+            upsample_kernel_size=2,
+            norm_name=norm_name,
+            res_block=res_block,
+        )
+        self.decoder1_1 = UnetrBasicBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.feat_size[0],
+            out_channels=self.feat_size[0],
+            kernel_size=3,
+            stride=1,
+            norm_name=norm_name,
+            res_block=res_block,
+        )
+
+        self.decoder6_2 = UnetrUpBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.hidden_size,
+            out_channels=self.feat_size[4],
+            kernel_size=3,
+            upsample_kernel_size=2,
+            norm_name=norm_name,
+            res_block=res_block,
+        )
+
+        self.decoder5_2 = UnetrUpBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.hidden_size,
+            out_channels=self.feat_size[3],
+            kernel_size=3,
+            upsample_kernel_size=2,
+            norm_name=norm_name,
+            res_block=res_block,
+        )
+        self.decoder4_2 = UnetrUpBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.feat_size[3],
+            out_channels=self.feat_size[2],
+            kernel_size=3,
+            upsample_kernel_size=2,
+            norm_name=norm_name,
+            res_block=res_block,
+        )
+        self.decoder3_2 = UnetrUpBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.feat_size[2],
+            out_channels=self.feat_size[1],
+            kernel_size=3,
+            upsample_kernel_size=2,
+            norm_name=norm_name,
+            res_block=res_block,
+        )
+        self.decoder2_2 = UnetrUpBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.feat_size[1],
+            out_channels=self.feat_size[0],
+            kernel_size=3,
+            upsample_kernel_size=2,
+            norm_name=norm_name,
+            res_block=res_block,
+        )
+        self.decoder1_2 = UnetrBasicBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.feat_size[0],
+            out_channels=self.feat_size[0],
+            kernel_size=3,
+            stride=1,
+            norm_name=norm_name,
+            res_block=res_block,
+        )
+
+        # deep supervision support
+        self.deep_supervision = deep_supervision
+        self.out_layers = _build_output_heads(spatial_dims, self.feat_size, self.out_chans, self.deep_supervision)
+        self.out_layers_1 = _build_output_heads(spatial_dims, self.feat_size, self.overlap_out_chans, self.deep_supervision)
+        self.out_layers_2 = _build_output_heads(spatial_dims, self.feat_size, self.overlap_sm_out_chans, self.deep_supervision)
+
+        self.merger = UnetPlusPlus(spatial_dims=2, in_channels=in_chans+out_chans*2 +1, out_channels=out_chans, features=(32, 32, 64, 128, 256, 32))
+        # self.merger = SwinUMamba(spatial_dims=2, in_chans=in_chans + out_chans*2, out_chans=out_chans)
+
+    def forward(self, x_in):
+        x1 = self.stem(x_in)
+        vss_outs = self.vssm_encoder(x1)
+        enc1 = self.encoder1(x_in)
+        enc2 = self.encoder2(vss_outs[0])
+        enc3 = self.encoder3(vss_outs[1])
+        enc4 = self.encoder4(vss_outs[2])
+        enc5 = self.encoder5(vss_outs[3])
+        enc_hidden = vss_outs[4]
+        dec4 = self.decoder6(enc_hidden, enc5)
+        dec3 = self.decoder5(dec4, enc4)
+        dec2 = self.decoder4(dec3, enc3)
+        dec1 = self.decoder3(dec2, enc2)
+        dec0 = self.decoder2(dec1, enc1)
+        dec_out = self.decoder1(dec0)
+
+        dec4_1 = self.decoder6_1(enc_hidden, enc5)
+        dec3_1 = self.decoder5_1(dec4_1, enc4)
+        dec2_1 = self.decoder4_1(dec3_1, enc3)
+        dec1_1 = self.decoder3_1(dec2_1, enc2)
+        dec0_1 = self.decoder2_1(dec1_1, enc1)
+        dec_out_1 = self.decoder1_1(dec0_1)
+
+        dec4_2 = self.decoder6_2(enc_hidden, enc5)
+        dec3_2 = self.decoder5_2(dec4_2, enc4)
+        dec2_2 = self.decoder4_2(dec3_2, enc3)
+        dec1_2 = self.decoder3_2(dec2_2, enc2)
+        dec0_2 = self.decoder2_2(dec1_2, enc1)
+        dec_out_2 = self.decoder1_2(dec0_2)
+
+        if self.deep_supervision:
+            feat_out = [dec_out, dec1, dec2, dec3]
+            out = []
+            for i in range(4):
+                pred = self.out_layers[i](feat_out[i])
+                out.append(pred)
+        else:
+            coarse_overall = self.out_layers[0](dec_out)
+            overlap = self.out_layers_1[0](dec_out_1)
+            out_1 = torch.concat([coarse_overall, overlap], dim=1)
+            out_2 = self.out_layers_2[0](dec_out_2)
+            # out = torch.concat([out, out_1], dim=1)
+            delta_overall = self.merger(torch.concat([x_in, coarse_overall, overlap, F.sigmoid(out_2 - 2)], dim=1))
+            refined_overall = coarse_overall + delta_overall
+
+        return out_1, out_2, refined_overall
+
+    @torch.no_grad()
+    def freeze_encoder(self):
+        for name, param in self.vssm_encoder.named_parameters():
+            if "patch_embed" not in name:
+                param.requires_grad = False
+
+    @torch.no_grad()
+    def unfreeze_encoder(self):
+        for param in self.vssm_encoder.parameters():
+            param.requires_grad = True
+
+    @torch.no_grad()
+    def freeze_all_but_merger(self) -> None:
+        """Freeze every parameter except those in ``self.merger``.
+
+        After calling this method, only the weights/biases inside the
+        ``merger`` head remain trainable. これにより、ファインチューニング
+        時は merger だけを効率的に更新できます。
+        """
+        for name, param in self.named_parameters():
+            # 「merger.」で始まるパラメータ名だけ学習を許可する
+            keep_trainable = name.startswith("merger.") or "patch_embed" in name
+            param.requires_grad = keep_trainable
+
+
+class SinglePathMergerSwinUMamba(nn.Module):
+    def __init__(
+        self,
+        in_chans=1,
+        out_chans=13,
+        overlap_out_chans=13,
+        feat_size=[48, 96, 192, 384, 768],
+        drop_path_rate=0,
+        layer_scale_init_value=1e-6,
+        hidden_size: int = 768,
+        norm_name = "instance",
+        res_block: bool = True,
+        spatial_dims=2,
+        deep_supervision: bool = False,
+    ) -> None:
+        super().__init__()
+
+        self.hidden_size = hidden_size
+        self.in_chans = in_chans
+        self.out_chans = out_chans
+        self.overlap_out_chans = overlap_out_chans
+        self.drop_path_rate = drop_path_rate
+        self.feat_size = feat_size
+        self.layer_scale_init_value = layer_scale_init_value
+
+        self.stem = nn.Sequential(
+              nn.Conv2d(in_chans, feat_size[0], kernel_size=7, stride=2, padding=3),
+              nn.InstanceNorm2d(feat_size[0], eps=1e-5, affine=True),
+        )
+        self.spatial_dims = spatial_dims
+        self.vssm_encoder = VSSMEncoder(patch_size=2, in_chans=feat_size[0], dims=feat_size[1:])
+        self.encoder1 = UnetrBasicBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.in_chans,
+            out_channels=self.feat_size[0],
+            kernel_size=3,
+            stride=1,
+            norm_name=norm_name,
+            res_block=res_block,
+        )
+        self.encoder2 = UnetrBasicBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.feat_size[0],
+            out_channels=self.feat_size[1],
+            kernel_size=3,
+            stride=1,
+            norm_name=norm_name,
+            res_block=res_block,
+        )
+        self.encoder3 = UnetrBasicBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.feat_size[1],
+            out_channels=self.feat_size[2],
+            kernel_size=3,
+            stride=1,
+            norm_name=norm_name,
+            res_block=res_block,
+        )
+        self.encoder4 = UnetrBasicBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.feat_size[2],
+            out_channels=self.feat_size[3],
+            kernel_size=3,
+            stride=1,
+            norm_name=norm_name,
+            res_block=res_block,
+        )
+
+        self.encoder5 = UnetrBasicBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.feat_size[3],
+            out_channels=self.feat_size[4],
+            kernel_size=3,
+            stride=1,
+            norm_name=norm_name,
+            res_block=res_block,
+        )
+
+        self.decoder6 = UnetrUpBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.hidden_size,
+            out_channels=self.feat_size[4],
+            kernel_size=3,
+            upsample_kernel_size=2,
+            norm_name=norm_name,
+            res_block=res_block,
+        )
+
+        self.decoder5 = UnetrUpBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.hidden_size,
+            out_channels=self.feat_size[3],
+            kernel_size=3,
+            upsample_kernel_size=2,
+            norm_name=norm_name,
+            res_block=res_block,
+        )
+        self.decoder4 = UnetrUpBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.feat_size[3],
+            out_channels=self.feat_size[2],
+            kernel_size=3,
+            upsample_kernel_size=2,
+            norm_name=norm_name,
+            res_block=res_block,
+        )
+        self.decoder3 = UnetrUpBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.feat_size[2],
+            out_channels=self.feat_size[1],
+            kernel_size=3,
+            upsample_kernel_size=2,
+            norm_name=norm_name,
+            res_block=res_block,
+        )
+        self.decoder2 = UnetrUpBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.feat_size[1],
+            out_channels=self.feat_size[0],
+            kernel_size=3,
+            upsample_kernel_size=2,
+            norm_name=norm_name,
+            res_block=res_block,
+        )
+        self.decoder1 = UnetrBasicBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.feat_size[0],
+            out_channels=self.feat_size[0],
+            kernel_size=3,
+            stride=1,
+            norm_name=norm_name,
+            res_block=res_block,
+        )
+
+        # deep supervision support
+        self.deep_supervision = deep_supervision
+        self.out_layers = _build_output_heads(spatial_dims, self.feat_size, self.out_chans, self.deep_supervision)
+        self.merger = UnetPlusPlus(spatial_dims=2, in_channels=in_chans+out_chans, out_channels=out_chans, features=(32, 32, 64, 128, 256, 32))
+
+    def forward(self, x_in):
+        x1 = self.stem(x_in)
+        vss_outs = self.vssm_encoder(x1)
+        enc1 = self.encoder1(x_in)
+        enc2 = self.encoder2(vss_outs[0])
+        enc3 = self.encoder3(vss_outs[1])
+        enc4 = self.encoder4(vss_outs[2])
+        enc5 = self.encoder5(vss_outs[3])
+        enc_hidden = vss_outs[4]
+        dec4 = self.decoder6(enc_hidden, enc5)
+        dec3 = self.decoder5(dec4, enc4)
+        dec2 = self.decoder4(dec3, enc3)
+        dec1 = self.decoder3(dec2, enc2)
+        dec0 = self.decoder2(dec1, enc1)
+        dec_out = self.decoder1(dec0)
+
+        if self.deep_supervision:
+            feat_out = [dec_out, dec1, dec2, dec3]
+            out = []
+            for i in range(4):
+                pred = self.out_layers[i](feat_out[i])
+                out.append(pred)
+        else:
+            coarse_overall = self.out_layers[0](dec_out)
+            # out = torch.concat([out, out_1], dim=1)
+            delta_overall = self.merger(torch.concat([x_in, coarse_overall], dim=1))
+            refined_overall = coarse_overall + delta_overall
+
+        return coarse_overall, refined_overall
 
     @torch.no_grad()
     def freeze_encoder(self):
