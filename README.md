@@ -10,7 +10,7 @@ This repository contains benchmark code for RAM-H1200 tasks, including:
 
 First download the RAM-H1200 dataset from Hugging Face:
 
-- https://huggingface.co/datasets/TokyoTechMagicYang/RAM-H1200
+- https://huggingface.co/datasets/TokyoTechMagicYang/RAM-H1200-v1
 
 For example:
 
