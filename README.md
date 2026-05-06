@@ -15,7 +15,7 @@ First download the RAM-H1200 dataset from Hugging Face:
 For example:
 
 ```bash
-git clone https://huggingface.co/datasets/TokyoTechMagicYang/RAM-H1200
+git clone https://huggingface.co/datasets/TokyoTechMagicYang/RAM-H1200-v1
 ```
 
 Then prepare your Python environment and update the placeholder paths in the shell scripts, or pass them through environment variables.
