@@ -1,4 +1,4 @@
-# Official Code Repository of RAM-H1200: A Unified Dataset and Benchmark on Hand Radiographs for Rheumatoid Arthritis
+# Official Code Repository of RAM-H1200: A Unified Evaluation and Dataset on Hand Radiographs for Rheumatoid Arthritis
 
 This repository contains benchmark code for RAM-H1200 tasks, including:
 
