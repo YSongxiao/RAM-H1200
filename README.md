@@ -216,3 +216,39 @@ GPU_ID=0 SCORE_TYPE=JSN DATA_PATH=/path/to/jsn_scoring_data bash test_score_cls.
 - Most scripts support single-run mode through environment variables such as `MODEL`, `CHECKPOINT`, and `DATA_PATH`.
 - Batch benchmark mode is controlled by the `EXPERIMENTS` array inside each script.
 - Some evaluation and summary utilities are kept as local helper scripts and may not be tracked in Git.
+
+## Citation
+
+If you use RAM-H1200 in your research, please cite:
+
+```bibtex
+@misc{yang2026ramh1200,
+  title={RAM-H1200: A Unified Evaluation and Dataset on Hand Radiographs for Rheumatoid Arthritis},
+  author={Songxiao Yang and Haolin Wang and Yao Fu and Junmu Peng and Lin Fan and Hongruixuan Chen and Jian Song and Masayuki Ikebe and Shinya Takamaeda-Yamazaki and Masatoshi Okutomi and Tamotsu Kamishima and Yafei Ou},
+  year={2026},
+  eprint={2605.05616},
+  archivePrefix={arXiv},
+  primaryClass={cs.CV},
+  url={https://arxiv.org/abs/2605.05616}
+}
+```
+
+## Suggested Citation
+
+If you use the benchmark code or experimental settings, we also recommend citing:
+
+```bibtex
+@article{yang2026ram,
+  title={RAM-W600: A Multi-Task Wrist Dataset and Benchmark for Rheumatoid Arthritis},
+  author={Yang, Songxiao and Wang, Haolin and Fu, Yao and Tian, Ye and Kamishima, Tamotsu and Ikebe, Masayuki and Ou, Yafei and Okutomi, Masatoshi},
+  journal={Advances in Neural Information Processing Systems},
+  volume={38},
+  year={2026}
+}
+```
+
+
+
+
+
+
